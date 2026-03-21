@@ -47,13 +47,16 @@ func runClaude(claudeBin string, args []string, cwd string, detectResume bool) R
 
 	cmd := exec.Command(claudeBin, args...)
 	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
 
-	// If detecting resume failure, tee stderr to capture it while still showing to user
-	var stderrBuf bytes.Buffer
+	// If detecting resume failure, tee stdout and stderr to capture output
+	// while still showing to user. Claude may write "No conversation found"
+	// to either stream.
+	var stdoutBuf, stderrBuf bytes.Buffer
 	if detectResume {
+		cmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
 		cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
 	} else {
+		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 	}
 
@@ -95,9 +98,11 @@ func runClaude(claudeBin string, args []string, cwd string, detectResume bool) R
 
 	result := RunResult{PID: pid, SessionID: sessionID, Err: waitErr}
 
-	// Check if this was a resume failure
+	// Check if this was a resume failure — Claude may write the error to
+	// either stdout or stderr depending on the version.
 	if detectResume && waitErr != nil {
-		if strings.Contains(stderrBuf.String(), "No conversation found") {
+		combined := stdoutBuf.String() + stderrBuf.String()
+		if strings.Contains(combined, "No conversation found") {
 			result.ResumeFailure = true
 		}
 	}
