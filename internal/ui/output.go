@@ -35,17 +35,17 @@ func Launch(format string, a ...any) {
 	fmt.Printf("\U0001f680 "+format+"\n", a...)
 }
 
-// StatusIcon returns the emoji for a session status.
+// StatusIcon returns the icon for a session status.
 func StatusIcon(status string) string {
 	switch status {
 	case "active":
-		return "\U0001f7e2"
+		return "▶"
 	case "detached":
-		return "\U0001f7e1"
+		return "⏸"
 	case "archived":
-		return "\U0001f4e6"
+		return "◼"
 	default:
-		return "\u2753"
+		return "?"
 	}
 }
 
