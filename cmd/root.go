@@ -21,10 +21,12 @@ var (
 func SetVersion(v string) { version = v }
 
 var rootCmd = &cobra.Command{
-	Use:           "muxc",
-	Short:         "muxc -- tmux-like session manager for Claude Code",
-	SilenceUsage:  true,
-	SilenceErrors: true,
+	Use:               "muxc [<session>]",
+	Short:             "muxc -- tmux-like session manager for Claude Code",
+	SilenceUsage:      true,
+	SilenceErrors:     true,
+	Args:              cobra.MaximumNArgs(1),
+	ValidArgsFunction: sessionNameCompletion,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		// Skip DB init for help/version/completion
 		if cmd.Name() == "help" || cmd.Name() == "version" || cmd.Name() == "completion" {
@@ -52,6 +54,10 @@ var rootCmd = &cobra.Command{
 		}
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 1 {
+			// Shortcut: muxc <name> → muxc attach <name>
+			return attachRun(cmd, args)
+		}
 		// Default: run ls
 		return lsRun(cmd, args)
 	},
