@@ -7,7 +7,7 @@
 
 **Claude Multiplexer — session manager for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).**
 
-Run multiple Claude Code sessions side-by-side, detach them to the background, and reattach later. Sessions persist in a local SQLite database so you never lose context even after reboots.
+Run multiple Claude Code sessions side-by-side, detach them to the background, and reattach later. Sessions persist as flat JSON files so you never lose context even after reboots.
 
 ## Why muxc?
 
