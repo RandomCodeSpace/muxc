@@ -2,7 +2,7 @@
 set -e
 
 REPO="randomcodespace/muxc"
-INSTALL_DIR="${MUXC_INSTALL_DIR:-/usr/local/bin}"
+INSTALL_DIR="${MUXC_INSTALL_DIR:-${HOME}/.local/bin}"
 
 # Detect OS and architecture
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -45,6 +45,7 @@ else
 fi
 
 chmod +x "$TMPFILE"
+mkdir -p "$INSTALL_DIR"
 
 if [ -w "$INSTALL_DIR" ]; then
   mv "$TMPFILE" "${INSTALL_DIR}/muxc"
@@ -54,3 +55,9 @@ else
 fi
 
 echo "muxc ${LATEST} installed to ${INSTALL_DIR}/muxc"
+
+case ":$PATH:" in
+  *":${INSTALL_DIR}:"*) ;;
+  *) echo "⚠️  ${INSTALL_DIR} is not in your PATH. Add it with:" >&2
+     echo "  export PATH=\"${INSTALL_DIR}:\$PATH\"" >&2 ;;
+esac
