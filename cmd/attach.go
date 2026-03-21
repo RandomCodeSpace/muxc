@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -21,6 +22,7 @@ var attachCmd = &cobra.Command{
 }
 
 func init() {
+	attachCmd.Flags().BoolP("force", "f", false, "Detach active session before reattaching")
 	rootCmd.AddCommand(attachCmd)
 }
 
@@ -65,15 +67,32 @@ func attachRun(cmd *cobra.Command, args []string) error {
 	// If session is marked active, check if PID is actually alive
 	if sess.Status == "active" {
 		if session.CheckPID(sess.ClaudePID) {
-			return fmt.Errorf("session %q is already active (PID %d); detach it first", name, sess.ClaudePID)
+			force, _ := cmd.Flags().GetBool("force")
+			if !force {
+				return fmt.Errorf("session %q is already active (PID %d); detach it first (or use --force)", name, sess.ClaudePID)
+			}
+			// Force-detach: send SIGTERM to the existing Claude process
+			if proc, err := os.FindProcess(sess.ClaudePID); err == nil {
+				if err := proc.Signal(syscall.SIGTERM); err != nil {
+					ui.Warn("failed to send SIGTERM to PID %d: %v", sess.ClaudePID, err)
+				}
+			}
+			sess.Status = "detached"
+			sess.ClaudePID = 0
+			if err := db.UpdateSession(sess); err != nil {
+				return fmt.Errorf("updating session: %w", err)
+			}
+			_ = db.AppendHistory(sess.ID, "force-detached", fmt.Sprintf("detached by attach --force"))
+			ui.Success("Force-detached session %q", name)
+		} else {
+			// PID is dead — transition to detached
+			sess.Status = "detached"
+			sess.ClaudePID = 0
+			if err := db.UpdateSession(sess); err != nil {
+				return fmt.Errorf("updating stale session: %w", err)
+			}
+			_ = db.AppendHistory(sess.ID, "reaped", "PID was dead on attach")
 		}
-		// PID is dead — transition to detached
-		sess.Status = "detached"
-		sess.ClaudePID = 0
-		if err := db.UpdateSession(sess); err != nil {
-			return fmt.Errorf("updating stale session: %w", err)
-		}
-		_ = db.AppendHistory(sess.ID, "reaped", "PID was dead on attach")
 	}
 
 	// Update session to active
