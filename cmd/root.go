@@ -22,7 +22,7 @@ func SetVersion(v string) { version = v }
 
 var rootCmd = &cobra.Command{
 	Use:               "muxc [<session>]",
-	Short:             "muxc -- tmux-like session manager for Claude Code",
+	Short:             "muxc -- Claude Multiplexer for Claude Code",
 	SilenceUsage:      true,
 	SilenceErrors:     true,
 	Args:              cobra.MaximumNArgs(1),

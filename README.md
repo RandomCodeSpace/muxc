@@ -5,9 +5,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/RandomCodeSpace/muxc?style=flat-square)](go.mod)
 
-**tmux-like session manager for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).**
+**Claude Multiplexer — session manager for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).**
 
-Run multiple Claude Code sessions side-by-side, detach them to the background, reattach later — just like tmux but purpose-built for Claude. Sessions persist in a local SQLite database so you never lose context even after reboots.
+Run multiple Claude Code sessions side-by-side, detach them to the background, and reattach later. Sessions persist in a local SQLite database so you never lose context even after reboots.
 
 ## Why muxc?
 
