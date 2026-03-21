@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.0.6)"
+        required: true
 
 permissions:
   contents: write
@@ -12,8 +17,18 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
         with:
+          ref: ${{ steps.version.outputs.tag }}
           fetch-depth: 0
 
       - uses: actions/setup-go@v5
@@ -22,7 +37,7 @@ jobs:
 
       - name: Build binaries
         run: |
-          VERSION="${GITHUB_REF#refs/tags/}"
+          VERSION="${{ steps.version.outputs.tag }}"
           LDFLAGS="-s -w -X github.com/RandomCodeSpace/muxc/cmd.version=${VERSION}"
           mkdir -p dist
 
@@ -43,8 +58,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="${GITHUB_REF#refs/tags/}"
+          VERSION="${{ steps.version.outputs.tag }}"
           gh release create "$VERSION" dist/* \
             --title "$VERSION" \
-            --generate-notes \
-            --notes-start-tag "$(git tag --sort=-v:refname | head -2 | tail -1)"
+            --generate-notes
