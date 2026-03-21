@@ -51,18 +51,18 @@ mv muxc-* ~/.local/bin/muxc
 ## Quick start
 
 ```sh
-muxc new myproject           # Create and launch a new session
+muxc myproject               # Create a new session (or reattach if it exists)
 # ... work with Claude, then press Ctrl-C or close the terminal ...
-muxc attach myproject        # Reattach to the same conversation
-muxc myproject               # Shortcut — same as attach
+muxc myproject               # Reattach to the same conversation
+muxc myproject -- --model opus  # Create with Claude flags (stored for future attaches)
 ```
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `muxc new <name> [-- <claude-args>]` | Create and launch a new Claude session |
-| `muxc attach [<name>]` / `muxc <name>` | Attach to an existing session (interactive picker if no name) |
+| `muxc <name> [-- <claude-args>]` | Attach to session, or create if it doesn't exist |
+| `muxc` | List sessions (same as `muxc ls`) |
 | `muxc detach <name>` | Detach an active session to the background |
 | `muxc kill <name>` | Kill a session's Claude process (`-f` for SIGKILL) |
 | `muxc ls` | List sessions (`-s status`, `-t tag`, `-a` for archived) |
@@ -76,13 +76,21 @@ muxc myproject               # Shortcut — same as attach
 | `muxc completion bash\|zsh\|fish` | Generate shell completions |
 | `muxc version` | Print version |
 
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--cwd <dir>` | Working directory for new session (default: current dir) |
+| `--tag <tag>` | Tags for new session (repeatable) |
+| `-f`, `--force` | Force-detach active session before reattaching |
+
 ### Session lifecycle
 
 ```
-  new ──▶ active ──▶ detach ──▶ detached ──▶ attach ──▶ active
-                       │                        │
-                       ▼                        ▼
-                     kill                    archive / rm
+  muxc <name> ──▶ active ──▶ detach ──▶ detached ──▶ muxc <name> ──▶ active
+                               │                           │
+                               ▼                           ▼
+                             kill                     archive / rm
 ```
 
 ### Status icons
