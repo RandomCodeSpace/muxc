@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"os"
-
 	"github.com/spf13/cobra"
 
 	"github.com/RandomCodeSpace/muxc/internal/config"
@@ -28,7 +26,7 @@ var rootCmd = &cobra.Command{
 	Args:              cobra.MaximumNArgs(1),
 	ValidArgsFunction: sessionNameCompletion,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// Skip DB init for help/version/completion
+		// Skip init for help/version/completion
 		if cmd.Name() == "help" || cmd.Name() == "version" || cmd.Name() == "completion" {
 			return nil
 		}
@@ -37,21 +35,13 @@ var rootCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if err := os.MkdirAll(cfg.DataDir, 0755); err != nil {
-			return err
-		}
-		db, err = store.Open(cfg.DBPath())
+		db, err = store.Open(cfg.SessionsDir())
 		if err != nil {
 			return err
 		}
 		// Reap dead sessions on every invocation
 		session.ReapDeadSessions(db)
 		return nil
-	},
-	PersistentPostRun: func(cmd *cobra.Command, args []string) {
-		if db != nil {
-			db.Close()
-		}
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 1 {

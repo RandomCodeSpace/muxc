@@ -22,7 +22,7 @@ func ReapDeadSessions(s *store.Store) error {
 			if err := s.UpdateSession(&sess); err != nil {
 				return err
 			}
-			s.AppendHistory(sess.ID, "detached", fmt.Sprintf("pid=%d (process died)", oldPID))
+			s.AppendHistory(sess.Name, "detached", fmt.Sprintf("pid=%d (process died)", oldPID))
 		}
 	}
 	return nil

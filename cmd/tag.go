@@ -18,24 +18,19 @@ var tagCmd = &cobra.Command{
 		action := args[1]
 		tagValue := args[2]
 
-		sess, err := db.GetSession(name)
-		if err != nil {
-			return err
-		}
-
 		switch action {
 		case "add":
-			if err := db.AddTag(sess.ID, tagValue); err != nil {
+			if err := db.AddTag(name, tagValue); err != nil {
 				return err
 			}
-			_ = db.AppendHistory(sess.ID, "tag-add", tagValue)
+			_ = db.AppendHistory(name, "tag-add", tagValue)
 			ui.Success("Added tag %q to session %q", tagValue, name)
 
 		case "rm":
-			if err := db.RemoveTag(sess.ID, tagValue); err != nil {
+			if err := db.RemoveTag(name, tagValue); err != nil {
 				return err
 			}
-			_ = db.AppendHistory(sess.ID, "tag-rm", tagValue)
+			_ = db.AppendHistory(name, "tag-rm", tagValue)
 			ui.Success("Removed tag %q from session %q", tagValue, name)
 
 		default:

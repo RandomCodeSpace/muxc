@@ -70,7 +70,7 @@ var killCmd = &cobra.Command{
 			return err
 		}
 
-		_ = db.AppendHistory(sess.ID, "killed", fmt.Sprintf("sent %s", sigName))
+		_ = db.AppendHistory(name, "killed", fmt.Sprintf("sent %s", sigName))
 
 		ui.Success("Killed session %q (%s)", name, sigName)
 		return nil

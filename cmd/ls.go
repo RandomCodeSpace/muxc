@@ -42,11 +42,7 @@ func lsRun(cmd *cobra.Command, args []string) error {
 	for i, s := range sessions {
 		tags := "-"
 		if len(s.Tags) > 0 {
-			tagValues := make([]string, len(s.Tags))
-			for j, t := range s.Tags {
-				tagValues[j] = t.Value
-			}
-			tags = strings.Join(tagValues, ", ")
+			tags = strings.Join(s.Tags, ", ")
 		}
 		rows[i] = ui.SessionRow{
 			Status:   s.Status,

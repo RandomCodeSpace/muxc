@@ -44,7 +44,7 @@ var archiveCmd = &cobra.Command{
 			return err
 		}
 
-		_ = db.AppendHistory(sess.ID, "archived", "")
+		_ = db.AppendHistory(name, "archived", "")
 
 		ui.Success("Archived session %q", name)
 		return nil

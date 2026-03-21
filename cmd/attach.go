@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"syscall"
@@ -82,7 +81,7 @@ func attachRun(cmd *cobra.Command, args []string) error {
 			if err := db.UpdateSession(sess); err != nil {
 				return fmt.Errorf("updating session: %w", err)
 			}
-			_ = db.AppendHistory(sess.ID, "force-detached", fmt.Sprintf("detached by attach --force"))
+			_ = db.AppendHistory(name, "force-detached", "detached by attach --force")
 			ui.Success("Force-detached session %q", name)
 		} else {
 			// PID is dead — transition to detached
@@ -91,7 +90,7 @@ func attachRun(cmd *cobra.Command, args []string) error {
 			if err := db.UpdateSession(sess); err != nil {
 				return fmt.Errorf("updating stale session: %w", err)
 			}
-			_ = db.AppendHistory(sess.ID, "reaped", "PID was dead on attach")
+			_ = db.AppendHistory(name, "reaped", "PID was dead on attach")
 		}
 	}
 
@@ -104,17 +103,8 @@ func attachRun(cmd *cobra.Command, args []string) error {
 	}
 
 	// Append "attached" history
-	if err := db.AppendHistory(sess.ID, "attached", ""); err != nil {
+	if err := db.AppendHistory(name, "attached", ""); err != nil {
 		return fmt.Errorf("appending history: %w", err)
-	}
-
-	// Decode ClaudeArgs from JSON array
-	var claudeArgs []string
-	if sess.ClaudeArgs != "" {
-		if err := json.Unmarshal([]byte(sess.ClaudeArgs), &claudeArgs); err != nil {
-			ui.Warn("failed to decode claude args: %v", err)
-			claudeArgs = nil
-		}
 	}
 
 	// Resolve claude binary
@@ -125,13 +115,9 @@ func attachRun(cmd *cobra.Command, args []string) error {
 
 	// Build exec args: --resume <session_id> plus decoded claude args
 	execArgs := []string{"--resume", sess.SessionID}
-	execArgs = append(execArgs, claudeArgs...)
+	execArgs = append(execArgs, sess.ClaudeArgs...)
 
 	ui.Launch("Attaching to session %q", name)
-
-	// Close DB before exec (exec replaces the process)
-	db.Close()
-	db = nil
 
 	// Exec claude (does not return on success)
 	return session.ExecClaude(claudeBin, execArgs, sess.Cwd)

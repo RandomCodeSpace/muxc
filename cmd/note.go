@@ -80,7 +80,7 @@ var noteCmd = &cobra.Command{
 			return err
 		}
 
-		_ = db.AppendHistory(sess.ID, "note", noteText)
+		_ = db.AppendHistory(name, "note", noteText)
 
 		ui.Success("Updated notes for session %q", name)
 		return nil

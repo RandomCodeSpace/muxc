@@ -3,30 +3,21 @@ package store
 import "time"
 
 type Session struct {
-	ID         uint      `gorm:"primaryKey"`
-	Name       string    `gorm:"uniqueIndex;size:64;not null"`
-	SessionID  string    `gorm:"uniqueIndex;not null"`
-	ClaudePID  int       `gorm:"default:0"`
-	Cwd        string    `gorm:"not null"`
-	Status     string    `gorm:"index;not null;default:detached"`
-	ClaudeArgs string    `gorm:"type:text"`
-	Notes      string    `gorm:"type:text"`
-	CreatedAt  time.Time `gorm:"autoCreateTime"`
-	AccessedAt time.Time
-	Tags       []Tag          `gorm:"foreignKey:SessionID;constraint:OnDelete:CASCADE"`
-	History    []HistoryEntry `gorm:"foreignKey:SessionID;constraint:OnDelete:CASCADE"`
-}
-
-type Tag struct {
-	ID        uint   `gorm:"primaryKey"`
-	SessionID uint   `gorm:"uniqueIndex:idx_session_tag;not null"`
-	Value     string `gorm:"uniqueIndex:idx_session_tag;not null"`
+	Name       string         `json:"name"`
+	SessionID  string         `json:"session_id"`
+	ClaudePID  int            `json:"claude_pid"`
+	Cwd        string         `json:"cwd"`
+	Status     string         `json:"status"`
+	ClaudeArgs []string       `json:"claude_args,omitempty"`
+	Notes      string         `json:"notes,omitempty"`
+	CreatedAt  time.Time      `json:"created_at"`
+	AccessedAt time.Time      `json:"accessed_at"`
+	Tags       []string       `json:"tags,omitempty"`
+	History    []HistoryEntry `json:"history,omitempty"`
 }
 
 type HistoryEntry struct {
-	ID        uint      `gorm:"primaryKey"`
-	SessionID uint      `gorm:"index;not null"`
-	Timestamp time.Time `gorm:"autoCreateTime"`
-	Event     string    `gorm:"not null"`
-	Details   string
+	Timestamp time.Time `json:"timestamp"`
+	Event     string    `json:"event"`
+	Details   string    `json:"details,omitempty"`
 }

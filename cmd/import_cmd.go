@@ -128,6 +128,7 @@ func importRun(cmd *cobra.Command, args []string) error {
 				startTime = time.UnixMilli(cs.StartedAt).UTC()
 			}
 
+			now := time.Now().UTC()
 			sess := &store.Session{
 				Name:       name,
 				SessionID:  cs.SessionID,
@@ -135,14 +136,16 @@ func importRun(cmd *cobra.Command, args []string) error {
 				Cwd:        cs.Cwd,
 				Status:     status,
 				CreatedAt:  startTime,
-				AccessedAt: time.Now().UTC(),
+				AccessedAt: now,
+				History: []store.HistoryEntry{
+					{Timestamp: now, Event: "imported", Details: "source=claude-sessions"},
+				},
 			}
 
 			if err := db.CreateSession(sess); err != nil {
 				ui.Warn("Failed to import: %v", err)
 				continue
 			}
-			_ = db.AppendHistory(sess.ID, "imported", "source=claude-sessions")
 			ui.Success("Imported as %q", name)
 			fmt.Println()
 		}

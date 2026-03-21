@@ -12,7 +12,6 @@ import (
 type Config struct {
 	DataDir   string `mapstructure:"data_dir"`
 	ClaudeBin string `mapstructure:"claude_bin"`
-	DBFile    string `mapstructure:"db_file"`
 }
 
 func Load(cfgFile string) (*Config, error) {
@@ -22,7 +21,6 @@ func Load(cfgFile string) (*Config, error) {
 
 	viper.SetDefault("data_dir", defaultDataDir)
 	viper.SetDefault("claude_bin", "") // auto-detect from PATH
-	viper.SetDefault("db_file", "muxc.db")
 
 	viper.SetEnvPrefix("MUXC")
 	viper.AutomaticEnv()
@@ -45,11 +43,8 @@ func Load(cfgFile string) (*Config, error) {
 	return &cfg, nil
 }
 
-func (c *Config) DBPath() string {
-	if filepath.IsAbs(c.DBFile) {
-		return c.DBFile
-	}
-	return filepath.Join(c.DataDir, c.DBFile)
+func (c *Config) SessionsDir() string {
+	return filepath.Join(c.DataDir, "sessions")
 }
 
 // GetClaudeBin returns the configured claude binary or finds it in PATH.

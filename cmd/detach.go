@@ -55,7 +55,7 @@ func detachRun(cmd *cobra.Command, args []string) error {
 	}
 
 	// Append "detached" history
-	if err := db.AppendHistory(sess.ID, "detached", ""); err != nil {
+	if err := db.AppendHistory(name, "detached", ""); err != nil {
 		return fmt.Errorf("appending history: %w", err)
 	}
 

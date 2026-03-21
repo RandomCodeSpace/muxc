@@ -38,12 +38,11 @@ var renameCmd = &cobra.Command{
 			return fmt.Errorf("cannot rename active session %q (PID %d is alive); kill it first", oldName, sess.ClaudePID)
 		}
 
-		sess.Name = newName
-		if err := db.UpdateSession(sess); err != nil {
+		if err := db.RenameSession(oldName, newName); err != nil {
 			return err
 		}
 
-		_ = db.AppendHistory(sess.ID, "renamed", fmt.Sprintf("%s -> %s", oldName, newName))
+		_ = db.AppendHistory(newName, "renamed", fmt.Sprintf("%s -> %s", oldName, newName))
 
 		ui.Success("Renamed session %q to %q", oldName, newName)
 		return nil

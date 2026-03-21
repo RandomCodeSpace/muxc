@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -52,22 +51,13 @@ var infoCmd = &cobra.Command{
 		fmt.Printf("   Accessed: %s (%s)\n", sess.AccessedAt.Format("2006-01-02 15:04:05"), ui.RelativeTime(sess.AccessedAt))
 
 		// Claude args
-		if sess.ClaudeArgs != "" {
-			var decoded []string
-			if err := json.Unmarshal([]byte(sess.ClaudeArgs), &decoded); err == nil {
-				fmt.Printf("   Claude args: %s\n", strings.Join(decoded, " "))
-			} else {
-				fmt.Printf("   Claude args: %s\n", sess.ClaudeArgs)
-			}
+		if len(sess.ClaudeArgs) > 0 {
+			fmt.Printf("   Claude args: %s\n", strings.Join(sess.ClaudeArgs, " "))
 		}
 
 		// Tags
 		if len(sess.Tags) > 0 {
-			tags := make([]string, len(sess.Tags))
-			for i, t := range sess.Tags {
-				tags[i] = t.Value
-			}
-			fmt.Printf("🏷️  Tags: %s\n", strings.Join(tags, ", "))
+			fmt.Printf("🏷️  Tags: %s\n", strings.Join(sess.Tags, ", "))
 		} else {
 			fmt.Println("🏷️  Tags: (none)")
 		}

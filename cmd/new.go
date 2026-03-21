@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -67,13 +66,7 @@ func newRun(cmd *cobra.Command, args []string) error {
 	// Generate session UUID
 	sessionID := uuid.New().String()
 
-	// Marshal claude args as JSON array
-	claudeArgsJSON, err := json.Marshal(claudeArgs)
-	if err != nil {
-		return fmt.Errorf("marshaling claude args: %w", err)
-	}
-
-	// Create session in DB
+	// Create session
 	now := time.Now()
 	sess := &store.Session{
 		Name:       name,
@@ -81,24 +74,17 @@ func newRun(cmd *cobra.Command, args []string) error {
 		ClaudePID:  os.Getpid(),
 		Cwd:        cwd,
 		Status:     "active",
-		ClaudeArgs: string(claudeArgsJSON),
+		ClaudeArgs: claudeArgs,
+		Tags:       newTags,
+		CreatedAt:  now,
 		AccessedAt: now,
+		History: []store.HistoryEntry{
+			{Timestamp: now, Event: "created"},
+		},
 	}
 
 	if err := db.CreateSession(sess); err != nil {
 		return fmt.Errorf("creating session: %w", err)
-	}
-
-	// Add tags
-	for _, t := range newTags {
-		if err := db.AddTag(sess.ID, t); err != nil {
-			return fmt.Errorf("adding tag %q: %w", t, err)
-		}
-	}
-
-	// Append "created" history entry
-	if err := db.AppendHistory(sess.ID, "created", ""); err != nil {
-		return fmt.Errorf("appending history: %w", err)
 	}
 
 	// Resolve claude binary
@@ -112,10 +98,6 @@ func newRun(cmd *cobra.Command, args []string) error {
 	execArgs = append(execArgs, claudeArgs...)
 
 	ui.Launch("Creating session %q (id: %s)", name, sessionID[:8])
-
-	// Close DB before exec (exec replaces the process)
-	db.Close()
-	db = nil
 
 	// Exec claude (does not return on success)
 	return session.ExecClaude(claudeBin, execArgs, cwd)
