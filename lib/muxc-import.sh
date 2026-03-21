@@ -26,7 +26,7 @@ cmd_import() {
         local meta_file="$dir/meta"
         [[ -f "$meta_file" ]] || continue
         local sid
-        sid=$(grep '^session_id=' "$meta_file" 2>/dev/null | cut -d= -f2-)
+        sid=$(grep '^session_id=' "$meta_file" 2>/dev/null | cut -d= -f2- | tr -d '"')
         [[ -n "$sid" ]] && known_ids+=("$sid")
     done
 

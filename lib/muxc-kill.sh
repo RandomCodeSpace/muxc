@@ -28,11 +28,12 @@ cmd_kill() {
 
     if ! check_pid "$claude_pid"; then
         info "Process already dead. Updating status."
+        local dead_pid="$claude_pid"
         status="detached"
         claude_pid=""
         accessed_at="$(iso_now)"
         write_meta "$name"
-        append_history "$name" "detached" "pid=$claude_pid (already dead)"
+        append_history "$name" "detached" "pid=$dead_pid (already dead)"
         return 0
     fi
 

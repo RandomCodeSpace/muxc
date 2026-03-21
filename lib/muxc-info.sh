@@ -12,11 +12,12 @@ cmd_info() {
     # Check PID liveness for accurate status
     if [[ "$status" == "active" && -n "$claude_pid" ]]; then
         if ! check_pid "$claude_pid"; then
+            local dead_pid="$claude_pid"
             status="detached"
             claude_pid=""
             accessed_at="$(iso_now)"
             write_meta "$name"
-            append_history "$name" "detached" "pid=$claude_pid (process died)"
+            append_history "$name" "detached" "pid=$dead_pid (process died)"
         fi
     fi
 

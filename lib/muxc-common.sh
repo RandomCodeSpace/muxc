@@ -56,12 +56,17 @@ read_meta() {
     if [[ ! -f "$meta_file" ]]; then
         die "Session \"$name\" not found"
     fi
-    # Source meta file — sets session_id, claude_pid, cwd, status,
-    # created_at, accessed_at, claude_args
+    # Validate meta file lines before sourcing (guard against code injection)
+    while IFS= read -r line; do
+        if [[ -n "$line" && ! "$line" =~ ^[a-z_]+= ]]; then
+            die "Corrupt meta file for session \"$name\": invalid line: $line"
+        fi
+    done < "$meta_file"
     source "$meta_file"
 }
 
 # Write meta file atomically (write to .tmp, then mv)
+# All values are quoted to handle spaces in paths
 write_meta() {
     local name="$1"
     local dir
@@ -69,13 +74,13 @@ write_meta() {
     local tmp_file="$dir/meta.tmp"
 
     cat > "$tmp_file" <<EOF
-session_id=$session_id
-claude_pid=$claude_pid
-cwd=$cwd
-status=$status
-created_at=$created_at
-accessed_at=$accessed_at
-claude_args=$claude_args
+session_id="${session_id}"
+claude_pid="${claude_pid}"
+cwd="${cwd}"
+status="${status}"
+created_at="${created_at}"
+accessed_at="${accessed_at}"
+claude_args="${claude_args}"
 EOF
     mv -f "$tmp_file" "$dir/meta"
 }
@@ -123,16 +128,20 @@ reap_dead_sessions() {
 
         # Read meta in a subshell to avoid polluting variables
         local _status _pid _name
-        _status=$(grep '^status=' "$meta_file" 2>/dev/null | cut -d= -f2-)
-        _pid=$(grep '^claude_pid=' "$meta_file" 2>/dev/null | cut -d= -f2-)
+        _status=$(grep '^status=' "$meta_file" 2>/dev/null | cut -d= -f2- | tr -d '"')
+        _pid=$(grep '^claude_pid=' "$meta_file" 2>/dev/null | cut -d= -f2- | tr -d '"')
         _name=$(basename "$dir")
 
         if [[ "$_status" == "active" && -n "$_pid" ]]; then
             if ! check_pid "$_pid"; then
-                # PID is dead — transition to detached
-                sed -i "s/^status=active$/status=detached/" "$meta_file"
-                sed -i "s/^claude_pid=.*$/claude_pid=/" "$meta_file"
-                sed -i "s/^accessed_at=.*$/accessed_at=$(iso_now)/" "$meta_file"
+                # PID is dead — transition to detached atomically
+                (
+                    read_meta "$_name"
+                    status="detached"
+                    claude_pid=""
+                    accessed_at="$(iso_now)"
+                    write_meta "$_name"
+                )
                 append_history "$_name" "detached" "pid=$_pid (process died)"
             fi
         fi

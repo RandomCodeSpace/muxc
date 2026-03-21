@@ -45,10 +45,10 @@ cmd_ls() {
         _name=$(basename "$dir")
 
         # Read meta fields
-        _status=$(grep '^status=' "$meta_file" 2>/dev/null | cut -d= -f2-)
-        _cwd=$(grep '^cwd=' "$meta_file" 2>/dev/null | cut -d= -f2-)
-        _accessed=$(grep '^accessed_at=' "$meta_file" 2>/dev/null | cut -d= -f2-)
-        _pid=$(grep '^claude_pid=' "$meta_file" 2>/dev/null | cut -d= -f2-)
+        _status=$(grep '^status=' "$meta_file" 2>/dev/null | cut -d= -f2- | tr -d '"')
+        _cwd=$(grep '^cwd=' "$meta_file" 2>/dev/null | cut -d= -f2- | tr -d '"')
+        _accessed=$(grep '^accessed_at=' "$meta_file" 2>/dev/null | cut -d= -f2- | tr -d '"')
+        _pid=$(grep '^claude_pid=' "$meta_file" 2>/dev/null | cut -d= -f2- | tr -d '"')
 
         # Skip archived unless --all
         if [[ "$_status" == "archived" && "$show_all" == false && "$filter_status" != "archived" ]]; then
@@ -69,7 +69,7 @@ cmd_ls() {
 
         # Filter by tag
         if [[ -n "$filter_tag" ]]; then
-            if ! grep -qx "$filter_tag" "$tags_file" 2>/dev/null; then
+            if ! grep -qxF "$filter_tag" "$tags_file" 2>/dev/null; then
                 continue
             fi
         fi

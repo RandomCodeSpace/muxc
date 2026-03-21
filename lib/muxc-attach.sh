@@ -15,10 +15,11 @@ cmd_attach() {
             die "Session \"$name\" is already active (pid $claude_pid). Use 'muxc kill $name' first."
         fi
         # PID is dead — transition to detached
+        local dead_pid="$claude_pid"
         status="detached"
         claude_pid=""
         write_meta "$name"
-        append_history "$name" "detached" "pid=$claude_pid (process died)"
+        append_history "$name" "detached" "pid=$dead_pid (process died)"
     fi
 
     if [[ "$status" == "archived" ]]; then
@@ -41,7 +42,7 @@ cmd_attach() {
         claude_pid="$$"
         accessed_at="$(iso_now)"
         write_meta "$name"
-    ) 9>"$lock_file"
+    ) 9>"$lock_file" || exit 1
 
     append_history "$name" "attached" "pid=$$"
 

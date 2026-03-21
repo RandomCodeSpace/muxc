@@ -71,8 +71,8 @@ assert_file_exists "$MUXC_HOME/sessions/test-session/history" "history file crea
 # Verify meta contents
 meta_content=$(cat "$MUXC_HOME/sessions/test-session/meta")
 assert_contains "$meta_content" "session_id=" "meta has session_id"
-assert_contains "$meta_content" "cwd=$TEST_CWD" "meta has correct cwd"
-assert_contains "$meta_content" "status=active" "meta has active status"
+assert_contains "$meta_content" "cwd=\"$TEST_CWD\"" "meta has correct cwd"
+assert_contains "$meta_content" "status=\"active\"" "meta has active status"
 
 # Verify history
 history_content=$(cat "$MUXC_HOME/sessions/test-session/history")
@@ -105,7 +105,7 @@ meta_content=$(cat "$MUXC_HOME/sessions/args-test/meta")
 assert_contains "$meta_content" "claude_args=" "meta has claude_args"
 
 # Verify args are base64 encoded
-claude_args_line=$(grep 'claude_args=' "$MUXC_HOME/sessions/args-test/meta" | cut -d= -f2-)
+claude_args_line=$(grep 'claude_args=' "$MUXC_HOME/sessions/args-test/meta" | cut -d= -f2- | tr -d '"')
 if [[ -n "$claude_args_line" ]]; then
     decoded=$(echo "$claude_args_line" | base64 -d 2>/dev/null)
     assert_contains "$decoded" "--dangerously-skip-permissions" "claude args decoded correctly"
@@ -133,8 +133,8 @@ source "$MUXC_LIB/muxc-ls.sh"
 # Mark sessions as detached for listing (since our mock doesn't create real PIDs)
 for session_dir in "$MUXC_HOME/sessions"/*/; do
     [[ -d "$session_dir" ]] || continue
-    sed -i 's/status=active/status=detached/' "$session_dir/meta"
-    sed -i 's/claude_pid=.*/claude_pid=/' "$session_dir/meta"
+    sed -i 's/status="active"/status="detached"/' "$session_dir/meta"
+    sed -i 's/claude_pid=".*"/claude_pid=""/' "$session_dir/meta"
 done
 
 output=$(cmd_ls 2>/dev/null)
@@ -213,7 +213,7 @@ source "$MUXC_LIB/muxc-archive.sh"
 
 cmd_archive "renamed-session" 2>/dev/null
 meta_content=$(cat "$MUXC_HOME/sessions/renamed-session/meta")
-assert_contains "$meta_content" "status=archived" "status set to archived"
+assert_contains "$meta_content" "status=\"archived\"" "status set to archived"
 
 # Verify ls hides archived by default
 output=$(cmd_ls 2>/dev/null)

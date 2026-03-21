@@ -17,7 +17,7 @@ cmd_tag() {
     case "$action" in
         add)
             # Check for duplicate
-            if grep -qx "$tag" "$tags_file" 2>/dev/null; then
+            if grep -qxF "$tag" "$tags_file" 2>/dev/null; then
                 warn "Tag \"$tag\" already exists on session \"$name\""
                 return 0
             fi
@@ -26,11 +26,11 @@ cmd_tag() {
             success "Added tag \"$tag\" to \"$name\""
             ;;
         rm|remove)
-            if ! grep -qx "$tag" "$tags_file" 2>/dev/null; then
+            if ! grep -qxF "$tag" "$tags_file" 2>/dev/null; then
                 warn "Tag \"$tag\" not found on session \"$name\""
                 return 0
             fi
-            grep -vx "$tag" "$tags_file" > "$tags_file.tmp" || true
+            grep -vxF "$tag" "$tags_file" > "$tags_file.tmp" || true
             mv -f "$tags_file.tmp" "$tags_file"
             append_history "$name" "tag-rm" "tag=$tag"
             success "Removed tag \"$tag\" from \"$name\""
