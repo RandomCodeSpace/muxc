@@ -5,7 +5,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"github.com/RandomCodeSpace/muxc/internal/session"
@@ -63,15 +62,12 @@ func newRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Generate session UUID
-	sessionID := uuid.New().String()
-
-	// Create session
+	// Create session record (session_id will be updated after Claude starts)
 	now := time.Now()
 	sess := &store.Session{
 		Name:       name,
-		SessionID:  sessionID,
-		ClaudePID:  os.Getpid(),
+		SessionID:  "", // populated after Claude starts
+		ClaudePID:  0,
 		Cwd:        cwd,
 		Status:     "active",
 		ClaudeArgs: claudeArgs,
@@ -93,12 +89,32 @@ func newRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Build claude args
-	execArgs := []string{"--session-id", sessionID, "--name", name}
+	// Build claude args — use --name so Claude Code names the session
+	execArgs := []string{"--name", name}
 	execArgs = append(execArgs, claudeArgs...)
 
-	ui.Launch("Creating session %q (id: %s)", name, sessionID[:8])
+	ui.Launch("Creating session %q", name)
 
-	// Exec claude (does not return on success)
-	return session.ExecClaude(claudeBin, execArgs, cwd)
+	// Run Claude as child process (captures session ID during execution)
+	result := session.RunClaude(claudeBin, execArgs, cwd)
+
+	// Update session with real PID and session ID from Claude
+	if result.PID > 0 {
+		sess.ClaudePID = result.PID
+		sess.SessionID = result.SessionID
+		_ = db.UpdateSession(sess)
+	}
+
+	// Mark session as detached now that Claude has exited
+	sess.Status = "detached"
+	sess.ClaudePID = 0
+	sess.AccessedAt = time.Now()
+	_ = db.UpdateSession(sess)
+	_ = db.AppendHistory(name, "detached", "claude process exited")
+
+	if sess.SessionID == "" {
+		ui.Warn("Could not capture Claude session ID — resume may not work for session %q", name)
+	}
+
+	return result.Err
 }

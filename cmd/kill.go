@@ -31,12 +31,13 @@ var killCmd = &cobra.Command{
 
 		if !session.CheckPID(sess.ClaudePID) {
 			// PID is not alive, just mark detached
+			deadPID := sess.ClaudePID
 			sess.Status = "detached"
 			sess.ClaudePID = 0
 			if err := db.UpdateSession(sess); err != nil {
 				return err
 			}
-			ui.Warn("PID %d is not alive; marked session %q as detached", sess.ClaudePID, name)
+			ui.Warn("PID %d is not alive; marked session %q as detached", deadPID, name)
 			return nil
 		}
 

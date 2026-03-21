@@ -94,31 +94,70 @@ func attachRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Update session to active
-	sess.Status = "active"
-	sess.ClaudePID = os.Getpid()
-	sess.AccessedAt = time.Now()
-	if err := db.UpdateSession(sess); err != nil {
-		return fmt.Errorf("updating session: %w", err)
-	}
-
-	// Append "attached" history
-	if err := db.AppendHistory(name, "attached", ""); err != nil {
-		return fmt.Errorf("appending history: %w", err)
-	}
-
 	// Resolve claude binary
 	claudeBin, err := cfg.GetClaudeBin()
 	if err != nil {
 		return err
 	}
 
-	// Build exec args: --resume <session_id> plus decoded claude args
-	execArgs := []string{"--resume", sess.SessionID}
-	execArgs = append(execArgs, sess.ClaudeArgs...)
+	// Update session to active
+	sess.Status = "active"
+	sess.AccessedAt = time.Now()
+	if err := db.UpdateSession(sess); err != nil {
+		return fmt.Errorf("updating session: %w", err)
+	}
 
-	ui.Launch("Attaching to session %q", name)
+	var result session.RunResult
 
-	// Exec claude (does not return on success)
-	return session.ExecClaude(claudeBin, execArgs, sess.Cwd)
+	// Try to resume if we have a session ID, otherwise start fresh
+	if sess.SessionID != "" {
+		if err := db.AppendHistory(name, "attached", fmt.Sprintf("resuming session %s", sess.SessionID)); err != nil {
+			return fmt.Errorf("appending history: %w", err)
+		}
+
+		execArgs := []string{"--resume", sess.SessionID}
+		execArgs = append(execArgs, sess.ClaudeArgs...)
+
+		ui.Launch("Attaching to session %q", name)
+
+		result = session.RunClaudeResume(claudeBin, execArgs, sess.Cwd)
+
+		// If resume failed, fall back to starting a fresh session
+		if result.ResumeFailure {
+			ui.Warn("Could not resume session %q — starting fresh in %s", name, ui.ShortenPath(sess.Cwd))
+			_ = db.AppendHistory(name, "resume-failed", fmt.Sprintf("session ID %s not found by Claude", sess.SessionID))
+
+			result = launchFresh(claudeBin, name, sess.Cwd, sess.ClaudeArgs)
+		}
+	} else {
+		ui.Warn("No session ID for %q — starting fresh in %s", name, ui.ShortenPath(sess.Cwd))
+		_ = db.AppendHistory(name, "attached", "no session ID, starting fresh")
+
+		result = launchFresh(claudeBin, name, sess.Cwd, sess.ClaudeArgs)
+	}
+
+	// Update PID and session ID if we got them
+	if result.PID > 0 {
+		sess.ClaudePID = result.PID
+		if result.SessionID != "" {
+			sess.SessionID = result.SessionID
+		}
+		_ = db.UpdateSession(sess)
+	}
+
+	// Mark session as detached now that Claude has exited
+	sess.Status = "detached"
+	sess.ClaudePID = 0
+	sess.AccessedAt = time.Now()
+	_ = db.UpdateSession(sess)
+	_ = db.AppendHistory(name, "detached", "claude process exited")
+
+	return result.Err
+}
+
+// launchFresh starts a new Claude session in the given directory with all original args.
+func launchFresh(claudeBin, name, cwd string, claudeArgs []string) session.RunResult {
+	execArgs := []string{"--name", name}
+	execArgs = append(execArgs, claudeArgs...)
+	return session.RunClaude(claudeBin, execArgs, cwd)
 }
