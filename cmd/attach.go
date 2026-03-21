@@ -25,11 +25,37 @@ func init() {
 }
 
 func attachRun(cmd *cobra.Command, args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("session name required (interactive picker coming soon)")
-	}
+	var name string
 
-	name := args[0]
+	if len(args) == 0 {
+		// Interactive picker if stdin is a TTY
+		sessions, err := db.ListSessions("", "", false)
+		if err != nil {
+			return err
+		}
+		if len(sessions) == 0 {
+			ui.Info("No sessions to attach to.")
+			return nil
+		}
+
+		rows := make([]ui.SessionRow, len(sessions))
+		for i, s := range sessions {
+			rows[i] = ui.SessionRow{
+				Status:   s.Status,
+				Name:     s.Name,
+				Cwd:      ui.ShortenPath(s.Cwd),
+				Accessed: ui.RelativeTime(s.AccessedAt),
+			}
+		}
+
+		picked, err := ui.PickSession(rows)
+		if err != nil {
+			return fmt.Errorf("no session selected")
+		}
+		name = picked
+	} else {
+		name = args[0]
+	}
 
 	sess, err := db.GetSession(name)
 	if err != nil {

@@ -38,28 +38,26 @@ func lsRun(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("%-3s %-20s %-30s %-14s %s\n", " ", "NAME", "CWD", "ACCESSED", "TAGS")
-	fmt.Printf("%-3s %-20s %-30s %-14s %s\n", " ", "----", "---", "--------", "----")
-
-	for _, s := range sessions {
-		icon := ui.StatusIcon(s.Status)
+	rows := make([]ui.SessionRow, len(sessions))
+	for i, s := range sessions {
 		tags := "-"
 		if len(s.Tags) > 0 {
 			tagValues := make([]string, len(s.Tags))
-			for i, t := range s.Tags {
-				tagValues[i] = t.Value
+			for j, t := range s.Tags {
+				tagValues[j] = t.Value
 			}
 			tags = strings.Join(tagValues, ", ")
 		}
-		fmt.Printf("%-3s %-20s %-30s %-14s %s\n",
-			icon,
-			s.Name,
-			ui.ShortenPath(s.Cwd),
-			ui.RelativeTime(s.AccessedAt),
-			tags,
-		)
+		rows[i] = ui.SessionRow{
+			Status:   s.Status,
+			Name:     s.Name,
+			Cwd:      ui.ShortenPath(s.Cwd),
+			Accessed: ui.RelativeTime(s.AccessedAt),
+			Tags:     tags,
+		}
 	}
 
-	ui.Info("%d session(s) listed.", len(sessions))
+	fmt.Println()
+	ui.RenderSessionTable(rows)
 	return nil
 }
