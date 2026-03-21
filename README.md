@@ -21,25 +21,13 @@ Claude Code runs in a single foreground terminal. If you close it, reconnecting 
 
 ## Install
 
-### Quick install (Linux / macOS)
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/RandomCodeSpace/muxc/main/install.sh | sh
-```
-
-Or with `wget`:
-
-```sh
-wget -qO- https://raw.githubusercontent.com/RandomCodeSpace/muxc/main/install.sh | sh
-```
-
 ### Go install
 
 ```sh
 go install github.com/RandomCodeSpace/muxc@latest
 ```
 
-### Manual download
+### Download from releases
 
 Download the binary for your platform from the [releases page](https://github.com/RandomCodeSpace/muxc/releases/latest), then:
 

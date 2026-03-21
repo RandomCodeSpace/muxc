@@ -59,6 +59,21 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ steps.version.outputs.tag }}"
+          PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${VERSION}$" | head -1)
+          if [ -n "$PREV_TAG" ]; then
+            CHANGELOG=$(git log "${PREV_TAG}..${VERSION}" --pretty=format:"- %s (%h)" --no-merges)
+          else
+            CHANGELOG=$(git log --pretty=format:"- %s (%h)" --no-merges)
+          fi
+
+          CHECKSUMS=$(cat dist/checksums.txt)
+
           gh release create "$VERSION" dist/* \
             --title "$VERSION" \
-            --generate-notes
+            --notes "## Changelog
+${CHANGELOG}
+
+## Checksums
+\`\`\`
+${CHECKSUMS}
+\`\`\`"
