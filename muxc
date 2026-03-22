@@ -340,7 +340,13 @@ cmd_ls() {
 cmd_info() {
     [[ $# -lt 1 ]] && die "Usage: muxc info <name>"
     scan_sessions
-    find_session "$1" || die "session \"$REF_NAME\" not found"
+    if ! find_session "$1"; then
+        if (( FOUND_COUNT > 0 )); then
+            die "no session \"$REF_NAME\" with ID prefix \"$REF_PREFIX\""
+        else
+            die "session \"$REF_NAME\" not found"
+        fi
+    fi
 
     local i=$FOUND_IDX
     echo "ℹ️  Session: ${S_NAMES[$i]}"
