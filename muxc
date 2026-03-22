@@ -282,3 +282,229 @@ find_session() {
     fi
     return 1  # not found
 }
+
+###############################################################################
+# Commands
+###############################################################################
+
+cmd_ls() {
+    local filter_status=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -s) [[ $# -ge 2 ]] || die "Usage: muxc ls [-s status]"; filter_status="$2"; shift 2 ;;
+            *)  shift ;;
+        esac
+    done
+
+    scan_sessions
+
+    if (( ${#S_NAMES[@]} == 0 )); then
+        info "No sessions found."
+        return 0
+    fi
+
+    # Header
+    # shellcheck disable=SC2059
+    printf "  ${DIM}%-4s  %-24s  %-10s  %-32s  %-12s${RESET}\n" "" "NAME" "ID" "DIRECTORY" "MODIFIED"
+
+    local count=0
+    for i in "${!S_NAMES[@]}"; do
+        [[ -n "$filter_status" && "${S_STATUSES[$i]}" != "$filter_status" ]] && continue
+        local icon
+        if [[ "${S_STATUSES[$i]}" == "active" ]]; then
+            icon="${GREEN}▶${RESET} "
+        else
+            icon="${YELLOW}⏸${RESET} "
+        fi
+        local short_id="${S_IDS[$i]:0:8}"
+        local rel
+        rel=$(relative_time "${S_MTIMES[$i]}")
+        # shellcheck disable=SC2059
+        printf "  %-4s  ${BOLD}%-24s${RESET}  ${DIM}%-10s  %-32s  %-12s${RESET}\n" \
+            "$icon" "${S_NAMES[$i]}" "$short_id" "$(shorten_path "${S_CWDS[$i]}")" "$rel"
+        (( count++ )) || true
+    done
+
+    echo
+    # shellcheck disable=SC2059
+    printf "  ${DIM}%d session(s)${RESET}\n" "$count"
+}
+
+cmd_info() {
+    [[ $# -lt 1 ]] && die "Usage: muxc info <name>"
+    scan_sessions
+    find_session "$1" || die "session \"$REF_NAME\" not found"
+
+    local i=$FOUND_IDX
+    echo "ℹ️  Session: ${S_NAMES[$i]}"
+    local status_icon
+    if [[ "${S_STATUSES[$i]}" == "active" ]]; then
+        status_icon="${GREEN}▶${RESET}"
+        echo "   Status: $status_icon ${S_STATUSES[$i]} (PID ${S_PIDS[$i]})"
+    else
+        status_icon="${YELLOW}⏸${RESET}"
+        echo "   Status: $status_icon ${S_STATUSES[$i]}"
+    fi
+    echo "   Session ID: ${S_IDS[$i]}"
+    echo "   Project: $(decode_project_hash "${S_PROJS[$i]}")"
+    echo "   Directory: $(shorten_path "${S_CWDS[$i]}")"
+    if (( S_MTIMES[i] > 0 )); then
+        echo "   Last modified: $(date -d "@${S_MTIMES[$i]}" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date -r "${S_MTIMES[$i]}" '+%Y-%m-%d %H:%M:%S' 2>/dev/null) ($(relative_time "${S_MTIMES[$i]}"))"
+    fi
+}
+
+cmd_create() {
+    local name="$1"; shift
+    local claude_args=("--dangerously-skip-permissions" "--name" "$name" "$@")
+    local extra_args="$*"
+
+    echo "🚀 Creating session \"$name\""
+
+    # We need claude in the FOREGROUND for TTY/stdin access.
+    # Poll for session ID in a BACKGROUND subshell.
+    local sid_file
+    sid_file=$(mktemp)
+
+    # Start background poller
+    (
+        sleep 0.5
+        for f in "$CLAUDE_DIR/sessions"/*.json; do
+            [[ -f "$f" ]] || continue
+            local fpid
+            fpid=$(jq -r '.pid // 0' "$f" 2>/dev/null) || continue
+            if check_pid "$fpid"; then
+                local cmdline
+                cmdline=$(cat "/proc/$fpid/cmdline" 2>/dev/null || ps -p "$fpid" -o command= 2>/dev/null || true)
+                if echo "$cmdline" | grep -q "$name"; then
+                    local sid
+                    sid=$(jq -r '.sessionId // ""' "$f" 2>/dev/null)
+                    [[ -n "$sid" ]] && echo "$sid" > "$sid_file"
+                fi
+            fi
+        done
+    ) &
+    local poller_pid=$!
+
+    # Run claude in foreground — gets full TTY access
+    "$CLAUDE_BIN" "${claude_args[@]}" || true
+
+    # Wait for poller to finish
+    wait "$poller_pid" 2>/dev/null || true
+
+    # Read captured session ID
+    local captured_sid=""
+    [[ -f "$sid_file" ]] && captured_sid=$(cat "$sid_file")
+    rm -f "$sid_file"
+
+    # Save args if we captured a session ID and user passed extra args
+    if [[ -n "$captured_sid" && -n "$extra_args" ]]; then
+        config_set_args "$captured_sid" "$extra_args"
+    fi
+
+    if [[ -z "$captured_sid" ]]; then
+        warn "Could not capture session ID — resume may not work for session \"$name\""
+    fi
+}
+
+cmd_resume() {
+    local i=$1; shift
+    local sid="${S_IDS[$i]}"
+    local cwd="${S_CWDS[$i]}"
+
+    # Block if already active
+    if [[ "${S_STATUSES[$i]}" == "active" ]] && check_pid "${S_PIDS[$i]}"; then
+        die "session \"${S_NAMES[$i]}\" is already active (PID ${S_PIDS[$i]})"
+    fi
+
+    # Restore saved args
+    local saved_args
+    saved_args=$(config_get_args "$sid")
+    local -a exec_args=("--dangerously-skip-permissions")
+    if [[ -n "$saved_args" ]]; then
+        local -a parsed
+        read -ra parsed <<< "$saved_args"
+        exec_args+=("${parsed[@]}")
+    fi
+    exec_args+=("--resume" "$sid" "$@")
+
+    echo "🔗 Resuming session \"${S_NAMES[$i]}\""
+    cd "$cwd" 2>/dev/null || true
+    exec "$CLAUDE_BIN" "${exec_args[@]}"
+}
+
+###############################################################################
+# Main routing
+###############################################################################
+
+# Reserved command names
+is_reserved() {
+    case "$1" in
+        ls|list|l|info|version|help|completion) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+main() {
+    ensure_jq
+    find_claude
+
+    local FLAG_CWD=""
+
+    # Parse global flags before command
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --cwd)  FLAG_CWD="$2"; shift 2 ;;
+            --)     shift; break ;;
+            *)      break ;;
+        esac
+    done
+
+    # Export FLAG_CWD for cmd_create (unused variable warning suppression)
+    export FLAG_CWD
+
+    # No args → list sessions
+    if [[ $# -eq 0 ]]; then
+        cmd_ls
+        return
+    fi
+
+    local cmd="$1"; shift
+
+    case "$cmd" in
+        ls|list|l)  cmd_ls "$@" ;;
+        info)       cmd_info "$@" ;;
+        version)    echo "muxc $VERSION" ;;
+        help|--help|-h) echo "Usage: muxc [<session>] [flags] [-- <claude-args>...]"; echo; echo "Commands: ls, info, version" ;;
+        *)
+            # Session name — resume or create
+            local ref="$cmd"
+            parse_ref "$ref"
+
+            if is_reserved "$REF_NAME"; then
+                die "\"$REF_NAME\" is a reserved command name — choose a different session name"
+            fi
+
+            scan_sessions
+
+            if find_session "$ref"; then
+                if (( FOUND_COUNT > 1 )) && [[ -z "$REF_PREFIX" ]]; then
+                    info "📋 $FOUND_COUNT sessions named \"$REF_NAME\" — using most recent. Run muxc ls to see all IDs, use muxc $REF_NAME:<id> to select."
+                fi
+                cmd_resume "$FOUND_IDX" "$@"
+            elif (( FOUND_COUNT > 0 )); then
+                # Name exists but prefix didn't match
+                die "no session \"$REF_NAME\" with ID prefix \"$REF_PREFIX\""
+            else
+                # Not found — offer to create
+                printf 'Session "%s" not found. Create it? [Y/n]: ' "$REF_NAME"
+                read -r answer
+                answer=$(echo "$answer" | tr '[:upper:]' '[:lower:]')
+                if [[ -z "$answer" || "$answer" == "y" || "$answer" == "yes" ]]; then
+                    cmd_create "$REF_NAME" "$@"
+                fi
+            fi
+            ;;
+    esac
+}
+
+main "$@"
