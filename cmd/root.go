@@ -5,59 +5,44 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"syscall"
-	"time"
 
 	"github.com/spf13/cobra"
 
-	"github.com/RandomCodeSpace/muxc/internal/config"
+	"github.com/RandomCodeSpace/muxc/internal/claude"
 	"github.com/RandomCodeSpace/muxc/internal/session"
-	"github.com/RandomCodeSpace/muxc/internal/store"
 	"github.com/RandomCodeSpace/muxc/internal/ui"
 )
 
 var (
-	cfgFile string
-	cfg     *config.Config
-	db      *store.Store
-	version string = "dev"
+	claudeBin string
+	version   string = "dev"
 )
 
 // reservedNames are subcommand names that cannot be used as session names.
 var reservedNames = map[string]bool{
 	"ls": true, "list": true, "l": true,
-	"attach": true, "detach": true, "kill": true,
-	"info": true, "tag": true, "note": true,
-	"rename": true, "archive": true, "rm": true,
-	"import": true, "completion": true, "version": true,
-	"help": true, "new": true,
+	"info": true, "completion": true, "version": true,
+	"help": true,
 }
 
 func SetVersion(v string) { version = v }
 
 var rootCmd = &cobra.Command{
 	Use:               "muxc [<session>] [flags] [-- <claude-args>...]",
-	Short:             "muxc -- Claude Multiplexer for Claude Code",
+	Short:             "muxc — Claude session viewer and launcher",
 	SilenceUsage:      true,
 	SilenceErrors:     true,
 	Args:              cobra.ArbitraryArgs,
 	ValidArgsFunction: sessionNameCompletion,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// Skip init for help/version/completion
 		if cmd.Name() == "help" || cmd.Name() == "version" || cmd.Name() == "completion" {
 			return nil
 		}
 		var err error
-		cfg, err = config.Load(cfgFile)
+		claudeBin, err = claude.GetClaudeBin()
 		if err != nil {
 			return err
 		}
-		db, err = store.Open(cfg.SessionsDir())
-		if err != nil {
-			return err
-		}
-		// Reap dead sessions on every invocation
-		session.ReapDeadSessions(db)
 		return nil
 	},
 	RunE: unifiedRun,
@@ -70,35 +55,24 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default ~/.muxc/config.yaml)")
 	rootCmd.Flags().StringVar(&flagCwd, "cwd", "", "working directory for new session (default: current dir)")
-	rootCmd.Flags().StringSliceVar(&flagTags, "tag", nil, "tags for new session (repeatable)")
-	rootCmd.Flags().BoolVarP(&flagForce, "force", "f", false, "force-detach active session before reattaching")
+	rootCmd.Flags().StringP("status", "s", "", "filter by status (active/detached)")
 }
 
-var (
-	flagCwd   string
-	flagTags  []string
-	flagForce bool
-)
+var flagCwd string
 
-// sessionNameCompletion provides tab-completion for session names
+// sessionNameCompletion provides tab-completion for session names.
 func sessionNameCompletion(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if db == nil {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-	names, _ := db.ListSessionNames(toComplete)
+	names, _ := claude.ListSessionNames(toComplete)
 	return names, cobra.ShellCompDirectiveNoFileComp
 }
 
-// unifiedRun handles `muxc <name>` — attaches if session exists, creates if not.
+// unifiedRun handles `muxc <name>` — resumes if session exists, creates if not.
 func unifiedRun(cmd *cobra.Command, args []string) error {
-	// No args → list sessions (or interactive picker)
 	if len(args) == 0 && cmd.ArgsLenAtDash() == -1 {
 		return lsRun(cmd, args)
 	}
 
-	// Parse name and claude args from positional args
 	var name string
 	var claudeArgs []string
 
@@ -117,15 +91,14 @@ func unifiedRun(cmd *cobra.Command, args []string) error {
 		name = positional[0]
 	}
 
-	// Check reserved names
 	if reservedNames[name] {
 		return fmt.Errorf("%q is a reserved command name — choose a different session name", name)
 	}
 
 	// Try to find existing session
-	sess, err := db.GetSession(name)
+	sess, err := claude.GetSession(name)
 	if err == nil {
-		return attachFlow(cmd, sess)
+		return attachFlow(sess, claudeArgs)
 	}
 
 	// Session doesn't exist — confirm creation
@@ -137,12 +110,11 @@ func unifiedRun(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	return createFlow(cmd, name, claudeArgs)
+	return createFlow(name, claudeArgs)
 }
 
-// createFlow creates a new session and launches Claude.
-func createFlow(cmd *cobra.Command, name string, claudeArgs []string) error {
-	// Resolve working directory
+// createFlow launches a new Claude session.
+func createFlow(name string, claudeArgs []string) error {
 	cwd := flagCwd
 	if cwd == "" {
 		var err error
@@ -152,159 +124,42 @@ func createFlow(cmd *cobra.Command, name string, claudeArgs []string) error {
 		}
 	}
 
-	// Create session record
-	now := time.Now()
-	sess := &store.Session{
-		Name:       name,
-		SessionID:  "", // populated after Claude starts
-		ClaudePID:  0,
-		Cwd:        cwd,
-		Status:     "active",
-		ClaudeArgs: claudeArgs,
-		Tags:       flagTags,
-		CreatedAt:  now,
-		AccessedAt: now,
-		History: []store.HistoryEntry{
-			{Timestamp: now, Event: "created"},
-		},
-	}
-
-	if err := db.CreateSession(sess); err != nil {
-		return fmt.Errorf("creating session: %w", err)
-	}
-
-	// Resolve claude binary
-	claudeBin, err := cfg.GetClaudeBin()
-	if err != nil {
-		return err
-	}
-
-	// Build claude args
 	execArgs := []string{"--name", name}
 	execArgs = append(execArgs, claudeArgs...)
 
-	ui.Launch("Creating session %q", name)
-
-	// Run Claude as child process (captures session ID during execution)
+	ui.Launch("🚀 Creating session %q", name)
 	result := session.RunClaude(claudeBin, execArgs, cwd)
 
-	// Update session with real PID and session ID from Claude
-	if result.PID > 0 {
-		sess.ClaudePID = result.PID
-		sess.SessionID = result.SessionID
-		_ = db.UpdateSession(sess)
+	if result.SessionID == "" {
+		ui.Warn("⚠️  Could not capture Claude session ID — resume may not work for session %q", name)
 	}
 
-	// Mark session as detached now that Claude has exited
-	sess.Status = "detached"
-	sess.ClaudePID = 0
-	sess.AccessedAt = time.Now()
-	_ = db.UpdateSession(sess)
-	_ = db.AppendHistory(name, "detached", "claude process exited")
+	return result.Err
+}
+
+// attachFlow resumes an existing session via claude --resume.
+func attachFlow(sess *claude.Session, claudeArgs []string) error {
+	// If session is active, tell user and exit
+	if sess.Status == "active" && claude.CheckPID(sess.PID) {
+		return fmt.Errorf("session %q is already active (PID %d)", sess.Name, sess.PID)
+	}
 
 	if sess.SessionID == "" {
-		ui.Warn("Could not capture Claude session ID — resume may not work for session %q", name)
+		ui.Warn("⚠️  No session ID for %q — starting fresh in %s", sess.Name, ui.ShortenPath(sess.Cwd))
+		return createFlow(sess.Name, claudeArgs)
 	}
 
-	return result.Err
-}
-
-// attachFlow attaches to an existing session (resume or fresh fallback).
-func attachFlow(cmd *cobra.Command, sess *store.Session) error {
-	name := sess.Name
-
-	// If session is marked active, check if PID is actually alive
-	if sess.Status == "active" {
-		if session.CheckPID(sess.ClaudePID) {
-			if !flagForce {
-				return fmt.Errorf("session %q is already active (PID %d); detach it first (or use --force)", name, sess.ClaudePID)
-			}
-			// Force-detach: send SIGTERM to the existing Claude process
-			if proc, err := os.FindProcess(sess.ClaudePID); err == nil {
-				if err := proc.Signal(syscall.SIGTERM); err != nil {
-					ui.Warn("failed to send SIGTERM to PID %d: %v", sess.ClaudePID, err)
-				}
-			}
-			sess.Status = "detached"
-			sess.ClaudePID = 0
-			if err := db.UpdateSession(sess); err != nil {
-				return fmt.Errorf("updating session: %w", err)
-			}
-			_ = db.AppendHistory(name, "force-detached", "detached by attach --force")
-			ui.Success("Force-detached session %q", name)
-		} else {
-			// PID is dead — transition to detached
-			sess.Status = "detached"
-			sess.ClaudePID = 0
-			if err := db.UpdateSession(sess); err != nil {
-				return fmt.Errorf("updating stale session: %w", err)
-			}
-			_ = db.AppendHistory(name, "reaped", "PID was dead on attach")
-		}
-	}
-
-	// Resolve claude binary
-	claudeBin, err := cfg.GetClaudeBin()
-	if err != nil {
-		return err
-	}
-
-	// Update session to active
-	sess.Status = "active"
-	sess.AccessedAt = time.Now()
-	if err := db.UpdateSession(sess); err != nil {
-		return fmt.Errorf("updating session: %w", err)
-	}
-
-	var result session.RunResult
-
-	// Try to resume if we have a session ID, otherwise start fresh
-	if sess.SessionID != "" {
-		_ = db.AppendHistory(name, "attached", fmt.Sprintf("resuming session %s", sess.SessionID))
-
-		execArgs := []string{"--resume", sess.SessionID}
-		execArgs = append(execArgs, sess.ClaudeArgs...)
-
-		ui.Launch("Attaching to session %q", name)
-
-		result = session.RunClaudeResume(claudeBin, execArgs, sess.Cwd)
-
-		// If resume failed, fall back to starting a fresh session
-		if result.ResumeFailure {
-			ui.Warn("Could not resume session %q — starting fresh in %s", name, ui.ShortenPath(sess.Cwd))
-			_ = db.AppendHistory(name, "resume-failed", fmt.Sprintf("session ID %s not found by Claude", sess.SessionID))
-
-			result = launchFresh(claudeBin, name, sess.Cwd, sess.ClaudeArgs)
-		}
-	} else {
-		ui.Warn("No session ID for %q — starting fresh in %s", name, ui.ShortenPath(sess.Cwd))
-		_ = db.AppendHistory(name, "attached", "no session ID, starting fresh")
-
-		result = launchFresh(claudeBin, name, sess.Cwd, sess.ClaudeArgs)
-	}
-
-	// Update PID and session ID if we got them
-	if result.PID > 0 {
-		sess.ClaudePID = result.PID
-		if result.SessionID != "" {
-			sess.SessionID = result.SessionID
-		}
-		_ = db.UpdateSession(sess)
-	}
-
-	// Mark session as detached now that Claude has exited
-	sess.Status = "detached"
-	sess.ClaudePID = 0
-	sess.AccessedAt = time.Now()
-	_ = db.UpdateSession(sess)
-	_ = db.AppendHistory(name, "detached", "claude process exited")
-
-	return result.Err
-}
-
-// launchFresh starts a new Claude session in the given directory with all original args.
-func launchFresh(claudeBin, name, cwd string, claudeArgs []string) session.RunResult {
-	execArgs := []string{"--name", name}
+	execArgs := []string{"--resume", sess.SessionID}
 	execArgs = append(execArgs, claudeArgs...)
-	return session.RunClaude(claudeBin, execArgs, cwd)
+
+	ui.Launch("🔗 Resuming session %q", sess.Name)
+	result := session.RunClaudeResume(claudeBin, execArgs, sess.Cwd)
+
+	// If resume failed, fall back to fresh session
+	if result.ResumeFailure {
+		ui.Warn("⚠️  Could not resume session %q — starting fresh in %s", sess.Name, ui.ShortenPath(sess.Cwd))
+		return createFlow(sess.Name, claudeArgs)
+	}
+
+	return result.Err
 }

@@ -41,11 +41,8 @@ func RunClaudeResume(claudeBin string, args []string, cwd string) RunResult {
 }
 
 func runClaude(claudeBin string, args []string, cwd string, detectResume bool) RunResult {
-	if err := os.Chdir(cwd); err != nil {
-		return RunResult{Err: fmt.Errorf("chdir to %s: %w", cwd, err)}
-	}
-
 	cmd := exec.Command(claudeBin, args...)
+	cmd.Dir = cwd
 	cmd.Stdin = os.Stdin
 	// Always pass stdout directly so the child sees a real TTY.
 	// Wrapping stdout in MultiWriter creates a pipe, which breaks
@@ -59,8 +56,6 @@ func runClaude(claudeBin string, args []string, cwd string, detectResume bool) R
 	} else {
 		cmd.Stderr = os.Stderr
 	}
-
-	startTime := time.Now()
 
 	if err := cmd.Start(); err != nil {
 		return RunResult{Err: fmt.Errorf("starting claude: %w", err)}
@@ -100,15 +95,9 @@ func runClaude(claudeBin string, args []string, cwd string, detectResume bool) R
 
 	result := RunResult{PID: pid, SessionID: sessionID, Err: waitErr}
 
-	// Detect resume failure. Check stderr for the explicit message.
-	// Also treat a very fast exit with error as a resume failure —
-	// Claude writes "No conversation found" and exits immediately,
-	// which covers the case where the message goes to stdout (which
-	// we can't tee without breaking the TTY).
+	// Detect resume failure by checking stderr for the explicit message.
 	if detectResume && waitErr != nil {
-		elapsed := time.Since(startTime)
-		if strings.Contains(stderrBuf.String(), "No conversation found") ||
-			elapsed < 5*time.Second {
+		if strings.Contains(stderrBuf.String(), "No conversation found") {
 			result.ResumeFailure = true
 		}
 	}

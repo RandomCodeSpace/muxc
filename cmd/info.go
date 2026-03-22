@@ -2,11 +2,10 @@ package cmd
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/RandomCodeSpace/muxc/internal/session"
+	"github.com/RandomCodeSpace/muxc/internal/claude"
 	"github.com/RandomCodeSpace/muxc/internal/ui"
 )
 
@@ -18,79 +17,27 @@ var infoCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
-		sess, err := db.GetSession(name)
+		sess, err := claude.GetSession(name)
 		if err != nil {
 			return err
 		}
 
-		// Check PID liveness and transition if dead
-		if sess.Status == "active" && !session.CheckPID(sess.ClaudePID) {
-			sess.Status = "detached"
-			sess.ClaudePID = 0
-			_ = db.UpdateSession(sess)
-		}
-
-		// Session name
 		fmt.Printf("ℹ️  Session: %s\n", sess.Name)
 
-		// Status line
 		statusLine := fmt.Sprintf("   Status: %s %s", ui.StatusIcon(sess.Status), sess.Status)
-		if sess.Status == "active" && sess.ClaudePID > 0 {
-			statusLine += fmt.Sprintf(" (PID %d)", sess.ClaudePID)
+		if sess.Status == "active" && sess.PID > 0 {
+			statusLine += fmt.Sprintf(" (PID %d)", sess.PID)
 		}
 		fmt.Println(statusLine)
 
-		// Session ID
 		fmt.Printf("   Session ID: %s\n", sess.SessionID)
-
-		// Directory
+		fmt.Printf("   Project: %s\n", claude.DecodeProjectHash(sess.Project))
 		fmt.Printf("   Directory: %s\n", ui.ShortenPath(sess.Cwd))
 
-		// Timestamps
-		fmt.Printf("   Created: %s (%s)\n", sess.CreatedAt.Format("2006-01-02 15:04:05"), ui.RelativeTime(sess.CreatedAt))
-		fmt.Printf("   Accessed: %s (%s)\n", sess.AccessedAt.Format("2006-01-02 15:04:05"), ui.RelativeTime(sess.AccessedAt))
-
-		// Claude args
-		if len(sess.ClaudeArgs) > 0 {
-			fmt.Printf("   Claude args: %s\n", strings.Join(sess.ClaudeArgs, " "))
+		if !sess.StartedAt.IsZero() {
+			fmt.Printf("   Started: %s (%s)\n", sess.StartedAt.Format("2006-01-02 15:04:05"), ui.RelativeTime(sess.StartedAt))
 		}
-
-		// Tags
-		if len(sess.Tags) > 0 {
-			fmt.Printf("🏷️  Tags: %s\n", strings.Join(sess.Tags, ", "))
-		} else {
-			fmt.Println("🏷️  Tags: (none)")
-		}
-
-		// Notes
-		if sess.Notes != "" {
-			fmt.Println("📝 Notes:")
-			for _, line := range strings.Split(sess.Notes, "\n") {
-				fmt.Printf("   %s\n", line)
-			}
-		} else {
-			fmt.Println("📝 Notes: (none)")
-		}
-
-		// Recent history (last 10)
-		fmt.Println("📜 Recent history:")
-		history := sess.History
-		start := 0
-		if len(history) > 10 {
-			start = len(history) - 10
-		}
-		if len(history) == 0 {
-			fmt.Println("   (none)")
-		} else {
-			for _, h := range history[start:] {
-				ts := h.Timestamp.Format("2006-01-02 15:04:05")
-				if h.Details != "" {
-					fmt.Printf("   %s  %-12s %s\n", ts, h.Event, h.Details)
-				} else {
-					fmt.Printf("   %s  %s\n", ts, h.Event)
-				}
-			}
-		}
+		fmt.Printf("   Last modified: %s (%s)\n", sess.ModTime.Format("2006-01-02 15:04:05"), ui.RelativeTime(sess.ModTime))
 
 		return nil
 	},

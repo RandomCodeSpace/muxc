@@ -5,18 +5,18 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/RandomCodeSpace/muxc?style=flat-square)](go.mod)
 
-**Claude Multiplexer — session manager for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).**
+**Claude Multiplexer — session viewer and launcher for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).**
 
-Run multiple Claude Code sessions side-by-side, detach them to the background, and reattach later. Sessions persist as flat JSON files so you never lose context even after reboots.
+List, inspect, and resume your Claude Code sessions from any terminal. muxc reads directly from Claude Code's native data — no extra config, no extra storage.
 
 ## Why muxc?
 
-Claude Code runs in a single foreground terminal. If you close it, reconnecting to the same conversation is manual and fragile. **muxc** fixes this:
+Claude Code stores your sessions but doesn't make them easy to manage across terminals. **muxc** fixes this:
 
-- **Multiple sessions** — work on different projects or tasks in parallel, each in its own named session
-- **Detach / reattach** — send a session to the background and pick it up later, from any terminal
-- **Session metadata** — tag, annotate, and filter sessions so you can find what you need
-- **Import orphans** — discover and adopt Claude Code sessions that were started outside muxc
+- **Zero storage** — reads session data directly from `~/.claude/`, never writes its own files
+- **Named sessions** — create and resume sessions by name across terminals
+- **Session listing** — see all your Claude Code sessions at a glance with status and metadata
+- **Resume by name** — `muxc myproject` picks up where you left off
 - **Zero dependencies** — single static binary, no CGO, no runtime requirements
 
 ## Install
@@ -51,28 +51,22 @@ mv muxc-* ~/.local/bin/muxc
 ## Quick start
 
 ```sh
-muxc myproject               # Create a new session (or reattach if it exists)
+muxc myproject               # Create a new session (or resume if it exists)
 # ... work with Claude, then press Ctrl-C or close the terminal ...
-muxc myproject               # Reattach to the same conversation
-muxc myproject -- --model opus  # Create with Claude flags (stored for future attaches)
+muxc myproject               # Resume the same conversation
+muxc myproject -- --model opus  # Create with extra Claude flags
+muxc ls                      # List all sessions
+muxc info myproject          # Show session details
 ```
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `muxc <name> [-- <claude-args>]` | Attach to session, or create if it doesn't exist |
+| `muxc <name> [-- <claude-args>]` | Resume session by name, or create if it doesn't exist |
 | `muxc` | List sessions (same as `muxc ls`) |
-| `muxc detach <name>` | Detach an active session to the background |
-| `muxc kill <name>` | Kill a session's Claude process (`-f` for SIGKILL) |
-| `muxc ls` | List sessions (`-s status`, `-t tag`, `-a` for archived) |
-| `muxc info <name>` | Show detailed session info and history |
-| `muxc tag <name> add\|rm <tag>` | Add or remove tags on a session |
-| `muxc note <name> [text]` | Set or edit session notes |
-| `muxc rename <old> <new>` | Rename a session |
-| `muxc archive <name>` | Archive a session |
-| `muxc rm <name>` | Remove a session (`-f` to force-kill first) |
-| `muxc import` | Adopt orphaned Claude Code sessions (`--scan` to preview) |
+| `muxc ls` | List sessions (`-s active` or `-s detached` to filter) |
+| `muxc info <name>` | Show detailed session info |
 | `muxc completion bash\|zsh\|fish` | Generate shell completions |
 | `muxc version` | Print version |
 
@@ -81,17 +75,6 @@ muxc myproject -- --model opus  # Create with Claude flags (stored for future at
 | Flag | Description |
 |------|-------------|
 | `--cwd <dir>` | Working directory for new session (default: current dir) |
-| `--tag <tag>` | Tags for new session (repeatable) |
-| `-f`, `--force` | Force-detach active session before reattaching |
-
-### Session lifecycle
-
-```
-  muxc <name> ──▶ active ──▶ detach ──▶ detached ──▶ muxc <name> ──▶ active
-                               │                           │
-                               ▼                           ▼
-                             kill                     archive / rm
-```
 
 ### Status icons
 
@@ -99,7 +82,23 @@ muxc myproject -- --model opus  # Create with Claude flags (stored for future at
 |------|--------|
 | `▶` | Active — Claude process is running |
 | `⏸` | Detached — session saved, process stopped |
-| `◼` | Archived — session preserved but hidden from default list |
+
+## How it works
+
+muxc is a **read-only** wrapper around Claude Code's native data:
+
+- **Session names** come from the `--name` flag, which Claude Code stores as a `custom-title` record in `~/.claude/projects/`
+- **Session IDs** are read from `~/.claude/sessions/{pid}.json` (written by Claude Code at startup)
+- **Active/detached status** is computed by checking if the session's PID is still alive in the process table
+- **Resume** uses `claude --resume <sessionId>` to reconnect to an existing conversation
+
+muxc never writes files, sends signals, or modifies Claude Code's data. All side effects go through the `claude` CLI.
+
+### Environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `MUXC_CLAUDE_BIN` | Path to the `claude` binary (default: auto-detected from `PATH`) |
 
 ## Shell completions
 

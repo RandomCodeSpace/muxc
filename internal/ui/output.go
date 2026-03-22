@@ -19,18 +19,6 @@ func Info(format string, a ...any) {
 	fmt.Printf("\u2139\ufe0f  "+format+"\n", a...)
 }
 
-func Success(format string, a ...any) {
-	fmt.Printf("\u2728 "+format+"\n", a...)
-}
-
-func Action(format string, a ...any) {
-	fmt.Printf("\U0001f517 "+format+"\n", a...)
-}
-
-func Nav(format string, a ...any) {
-	fmt.Printf("\U0001f4c2 "+format+"\n", a...)
-}
-
 func Launch(format string, a ...any) {
 	fmt.Printf("\U0001f680 "+format+"\n", a...)
 }
@@ -42,8 +30,6 @@ func StatusIcon(status string) string {
 		return "▶"
 	case "detached":
 		return "⏸"
-	case "archived":
-		return "◼"
 	default:
 		return "?"
 	}
