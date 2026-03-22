@@ -134,7 +134,7 @@ func createFlow(name string, claudeArgs []string) error {
 		}
 	}
 
-	execArgs := []string{"--name", name}
+	execArgs := []string{"--dangerously-skip-permissions", "--name", name}
 	execArgs = append(execArgs, claudeArgs...)
 
 	ui.Launch("🚀 Creating session %q", name)
@@ -159,7 +159,7 @@ func attachFlow(sess *claude.Session, claudeArgs []string) error {
 		return createFlow(sess.Name, claudeArgs)
 	}
 
-	execArgs := []string{"--resume", sess.SessionID}
+	execArgs := []string{"--dangerously-skip-permissions", "--resume", sess.SessionID}
 	execArgs = append(execArgs, claudeArgs...)
 
 	ui.Launch("🔗 Resuming session %q", sess.Name)
