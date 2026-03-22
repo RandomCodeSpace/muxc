@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+VERSION="0.2.0"
+CLAUDE_BIN="${MUXC_CLAUDE_BIN:-}"
+CONFIG_FILE="${HOME}/.config/muxc.conf"
+CLAUDE_DIR="${HOME}/.claude"
+
+# OS detection (once, at startup)
+OS=$(uname -s)
+ARCH=$(uname -m)
+
+# ANSI colors
+BOLD=$'\e[1m'
+DIM=$'\e[2m'
+GREEN=$'\e[32m'
+YELLOW=$'\e[33m'
+# shellcheck disable=SC2034
+CYAN=$'\e[36m'
+# shellcheck disable=SC2034
+MAGENTA=$'\e[35m'
+RESET=$'\e[0m'
+
+###############################################################################
+# Utility functions
+###############################################################################
+
+die()  { echo "❌ $*" >&2; exit 1; }
+warn() { echo "⚠️  $*" >&2; }
+info() { echo "ℹ️  $*"; }
+
+# Cross-platform stat for mtime epoch
+file_mtime() {
+    case "$OS" in
+        Linux*)  stat -c %Y "$1" 2>/dev/null || echo 0 ;;
+        Darwin*) stat -f %m "$1" 2>/dev/null || echo 0 ;;
+        *)       echo 0 ;;
+    esac
+}
+
+# Relative time from epoch seconds
+relative_time() {
+    local diff=$(( $(date +%s) - $1 ))
+    if   (( diff < 60 ));    then echo "just now"
+    elif (( diff < 3600 ));  then echo "$(( diff / 60 ))m ago"
+    elif (( diff < 86400 )); then echo "$(( diff / 3600 ))h ago"
+    else echo "$(( diff / 86400 ))d ago"
+    fi
+}
+
+# Shorten home prefix
+shorten_path() { echo "${1/#$HOME/~}"; }
+
+# Decode project hash (best-effort)
+decode_project_hash() {
+    local candidate="${1//-//}"
+    if [[ -d "$candidate" ]]; then
+        echo "$candidate"
+    else
+        echo "$1"
+    fi
+}
+
+# Cross-platform PID liveness check
+check_pid() {
+    local pid=$1
+    (( pid <= 0 )) && return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    case "$OS" in
+        Linux*)  grep -q claude "/proc/$pid/cmdline" 2>/dev/null ;;
+        Darwin*) ps -p "$pid" -o command= 2>/dev/null | grep -q claude ;;
+        *)       return 1 ;;
+    esac
+}
+
+###############################################################################
+# jq bootstrap
+###############################################################################
+
+ensure_jq() {
+    command -v jq &>/dev/null && return
+    local os arch url
+    os=$(uname -s | tr '[:upper:]' '[:lower:]')
+    case "$ARCH" in
+        x86_64|amd64) arch="amd64" ;;
+        aarch64|arm64) arch="arm64" ;;
+        *) die "Unsupported architecture: $ARCH" ;;
+    esac
+    [[ "$os" == "darwin" ]] && os="macos"
+    url="https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-${os}-${arch}"
+    info "📦 Installing jq to ~/.local/bin..."
+    mkdir -p "$HOME/.local/bin"
+    if ! curl -fsSL "$url" -o "$HOME/.local/bin/jq" || ! chmod +x "$HOME/.local/bin/jq"; then
+        die "Failed to install jq. Install manually: https://jqlang.github.io/jq/"
+    fi
+    export PATH="$HOME/.local/bin:$PATH"
+}
+
+# Resolve claude binary
+find_claude() {
+    if [[ -n "$CLAUDE_BIN" ]]; then
+        [[ -x "$CLAUDE_BIN" ]] || die "MUXC_CLAUDE_BIN=$CLAUDE_BIN is not executable"
+        return
+    fi
+    CLAUDE_BIN=$(command -v claude 2>/dev/null) \
+        || die "claude not found in PATH. Set MUXC_CLAUDE_BIN or install Claude Code."
+}
+
+###############################################################################
+# Config read/write
+###############################################################################
+
+# Read saved args for a session ID from properties file
+config_get_args() {
+    local sid="$1"
+    [[ -f "$CONFIG_FILE" ]] || return 0
+    grep "^${sid}=" "$CONFIG_FILE" 2>/dev/null | tail -1 | cut -d= -f2-
+}
+
+# Save args for a session ID (dedup on write)
+config_set_args() {
+    local sid="$1" args="$2"
+    mkdir -p "$(dirname "$CONFIG_FILE")"
+    if [[ -f "$CONFIG_FILE" ]]; then
+        # Remove old entry (portable sed -i)
+        local tmp="${CONFIG_FILE}.tmp"
+        grep -v "^${sid}=" "$CONFIG_FILE" > "$tmp" 2>/dev/null || true
+        mv "$tmp" "$CONFIG_FILE"
+    fi
+    echo "${sid}=${args}" >> "$CONFIG_FILE"
+}
