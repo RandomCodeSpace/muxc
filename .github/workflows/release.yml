@@ -49,10 +49,15 @@ jobs:
             CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" go build -ldflags "$LDFLAGS" -o "$OUTPUT" .
           done
 
+      - name: Pin install.sh to this version
+        run: |
+          VERSION="${{ steps.version.outputs.tag }}"
+          sed "s/^PINNED_VERSION=\"\"/PINNED_VERSION=\"${VERSION}\"/" install.sh > dist/install.sh
+
       - name: Generate checksums
         run: |
           cd dist
-          sha256sum muxc-* > checksums.txt
+          sha256sum muxc-* install.sh > checksums.txt
 
       - name: Create release
         env:

@@ -3,6 +3,9 @@ set -e
 
 REPO="randomcodespace/muxc"
 INSTALL_DIR="${MUXC_INSTALL_DIR:-${HOME}/.local/bin}"
+# Pinned version — when this script is fetched from a tagged release,
+# it installs that exact version instead of latest.
+PINNED_VERSION=""
 
 # Detect OS and architecture
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -21,11 +24,15 @@ esac
 
 BINARY="muxc-${OS}-${ARCH}"
 
-# Get latest release tag
-LATEST="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)"
-if [ -z "$LATEST" ]; then
-  echo "Failed to fetch latest release" >&2
-  exit 1
+# Resolve version: use pinned version if set, otherwise fetch latest
+if [ -n "$PINNED_VERSION" ]; then
+  LATEST="$PINNED_VERSION"
+else
+  LATEST="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)"
+  if [ -z "$LATEST" ]; then
+    echo "Failed to fetch latest release" >&2
+    exit 1
+  fi
 fi
 
 URL="https://github.com/${REPO}/releases/download/${LATEST}/${BINARY}"
