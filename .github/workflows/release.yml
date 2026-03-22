@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to release (e.g. v0.2.0)"
+        description: "Tag to release (e.g. v0.0.6)"
         required: true
 
 permissions:
@@ -31,16 +31,28 @@ jobs:
           ref: ${{ steps.version.outputs.tag }}
           fetch-depth: 0
 
-      - name: Lint
-        run: |
-          bash -n muxc
-          shellcheck muxc
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
 
-      - name: Package
+      - name: Build binaries
         run: |
+          VERSION="${{ steps.version.outputs.tag }}"
+          LDFLAGS="-s -w -X github.com/RandomCodeSpace/muxc/cmd.version=${VERSION}"
           mkdir -p dist
-          cp muxc dist/muxc
-          cd dist && sha256sum muxc > checksums.txt
+
+          TARGETS="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64"
+          for target in $TARGETS; do
+            GOOS="${target%/*}"
+            GOARCH="${target#*/}"
+            OUTPUT="dist/muxc-${GOOS}-${GOARCH}"
+            CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" go build -ldflags "$LDFLAGS" -o "$OUTPUT" .
+          done
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum muxc-* > checksums.txt
 
       - name: Create release
         env:
@@ -56,11 +68,6 @@ jobs:
           {
             echo "## Changelog"
             echo "${CHANGELOG}"
-            echo ""
-            echo "## Install"
-            echo '```sh'
-            echo "curl -fsSL https://raw.githubusercontent.com/RandomCodeSpace/muxc/${VERSION}/muxc | install -m 755 /dev/stdin ~/.local/bin/muxc"
-            echo '```'
             echo ""
             echo "## Checksums"
             echo '```'
