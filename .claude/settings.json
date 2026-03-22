@@ -1,16 +1,1 @@
-{
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "if [[ \"$TOOL_INPUT\" == *muxc* ]]; then shellcheck /home/dev/git/muxc/muxc 2>&1 | head -20; fi",
-            "statusMessage": "Running ShellCheck..."
-          }
-        ]
-      }
-    ]
-  }
-}
+{}
