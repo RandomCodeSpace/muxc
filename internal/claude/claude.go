@@ -9,8 +9,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
+
+	"github.com/RandomCodeSpace/muxc/internal/session"
 )
 
 // Session represents a Claude Code session derived from native CLI data.
@@ -78,13 +79,11 @@ func scanPIDFiles(claudeBase string) (map[string]pidInfo, error) {
 			Cwd:       raw.Cwd,
 			StartedAt: time.UnixMilli(raw.StartedAt),
 		}
-		if CheckPID(raw.PID) {
+		// Always store with PID=0 since we use tmux for active detection now.
+		// Keep Cwd/StartedAt from the most recent PID file (highest PID number).
+		info.PID = 0
+		if _, exists := result[raw.SessionID]; !exists {
 			result[raw.SessionID] = info
-		} else {
-			info.PID = 0
-			if _, exists := result[raw.SessionID]; !exists {
-				result[raw.SessionID] = info
-			}
 		}
 	}
 	return result, nil
@@ -172,10 +171,6 @@ func ListSessions() ([]Session, error) {
 			}
 
 			if pi, ok := pidMap[ct.SessionID]; ok {
-				if pi.PID > 0 {
-					sess.PID = pi.PID
-					sess.Status = "active"
-				}
 				sess.Cwd = pi.Cwd
 				sess.StartedAt = pi.StartedAt
 			}
@@ -185,6 +180,16 @@ func ListSessions() ([]Session, error) {
 			}
 
 			sessions = append(sessions, sess)
+		}
+	}
+
+	// Check tmux for active sessions
+	tmuxBin, _ := exec.LookPath("tmux")
+	tmuxSessions := session.ListTmuxSessions(tmuxBin)
+	for i := range sessions {
+		tmuxName := session.TmuxSessionName(sessions[i].Name)
+		if tmuxSessions[tmuxName] {
+			sessions[i].Status = "active"
 		}
 	}
 
@@ -283,26 +288,6 @@ func GetClaudeBin() (string, error) {
 		return "", fmt.Errorf("claude not found in PATH; set MUXC_CLAUDE_BIN env var")
 	}
 	return path, nil
-}
-
-// CheckPID returns true if the PID is alive and belongs to a claude process.
-func CheckPID(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	if err := proc.Signal(syscall.Signal(0)); err != nil {
-		return false
-	}
-	// Verify it's a claude process (guard against PID reuse)
-	cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
-	if err != nil {
-		return false
-	}
-	return strings.Contains(string(cmdline), "claude")
 }
 
 // DecodeProjectHash converts a project hash back to an absolute path.

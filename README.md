@@ -5,19 +5,25 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/RandomCodeSpace/muxc?style=flat-square)](go.mod)
 
-**Claude Multiplexer — session viewer and launcher for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).**
+**Claude Multiplexer — persistent session manager for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) using tmux.**
 
-List, inspect, and resume your Claude Code sessions from any terminal. muxc reads directly from Claude Code's native data — no extra config, no extra storage.
+Run Claude Code sessions in tmux. Detach, close your terminal, SSH from another device, and reattach to the same running session.
 
 ## Why muxc?
 
-Claude Code stores your sessions but doesn't make them easy to manage across terminals. **muxc** fixes this:
+Claude Code runs in a single foreground terminal. Close it, and you have to manually resume. **muxc** fixes this:
 
-- **Zero storage** — reads session data directly from `~/.claude/`, never writes its own files
-- **Named sessions** — create and resume sessions by name across terminals
-- **Session listing** — see all your Claude Code sessions at a glance with status and metadata
-- **Resume by name** — `muxc myproject` picks up where you left off
-- **Zero dependencies** — single static binary, no CGO, no runtime requirements
+- **Persistent sessions** — Claude runs inside tmux, survives terminal close and SSH disconnects
+- **Detach / reattach** — `Ctrl-B d` to detach, `muxc myproject` from any terminal to reattach
+- **Cross-device access** — SSH from another machine and reattach to a running session
+- **Named sessions** — create and resume sessions by name
+- **Session listing** — see all sessions at a glance with IDs and status
+- **Zero storage** — reads session data from `~/.claude/`, never writes its own files
+
+## Requirements
+
+- **tmux** (any recent version) — `sudo apt install tmux` or `brew install tmux`
+- **Claude Code** — installed and in PATH
 
 ## Install
 
@@ -51,24 +57,28 @@ mv muxc-* ~/.local/bin/muxc
 ## Quick start
 
 ```sh
-muxc myproject               # Create a new session (or resume if it exists)
-# ... work with Claude, then press Ctrl-C or close the terminal ...
-muxc myproject               # Resume the same conversation
+muxc myproject               # Create a new session in tmux
+# ... work with Claude ...
+# Press Ctrl-B d to detach (Claude keeps running!)
+
+muxc myproject               # Reattach from any terminal or device
 muxc myproject -- --model opus  # Create with extra Claude flags
 muxc ls                      # List all sessions (with session IDs)
 muxc info myproject          # Show session details
 muxc myproject:8c14          # Resume a specific session by ID prefix
+muxc kill myproject          # Stop a running session
 ```
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `muxc <name> [-- <claude-args>]` | Resume session by name, or create if it doesn't exist |
+| `muxc <name> [-- <claude-args>]` | Create/attach to a tmux session |
 | `muxc <name>:<id>` | Resume a specific session by name and ID prefix |
 | `muxc` | List sessions (same as `muxc ls`) |
 | `muxc ls` | List sessions with IDs (`-s active` or `-s detached` to filter) |
 | `muxc info <name>` | Show detailed session info |
+| `muxc kill <name>` | Kill a running tmux session |
 | `muxc completion bash\|zsh\|fish` | Generate shell completions |
 | `muxc version` | Print version |
 
@@ -82,25 +92,32 @@ muxc myproject:8c14          # Resume a specific session by ID prefix
 
 | Icon | Status |
 |------|--------|
-| `▶` | Active — Claude process is running |
-| `⏸` | Detached — session saved, process stopped |
+| `▶` | Active — Claude is running in a tmux session |
+| `⏸` | Detached — session data saved, can be resumed |
 
 ## How it works
 
-muxc is a **read-only** wrapper around Claude Code's native data:
+muxc manages Claude Code sessions through **tmux**:
 
-- **Session names** come from the `--name` flag, which Claude Code stores as a `custom-title` record in `~/.claude/projects/`
-- **Session IDs** are read from `~/.claude/sessions/{pid}.json` (written by Claude Code at startup)
-- **Active/detached status** is computed by checking if the session's PID is still alive in the process table
-- **Resume** uses `claude --resume <sessionId>` to reconnect to an existing conversation
+1. `muxc myproject` creates a tmux session named `muxc-myproject` running `claude --name myproject`
+2. The Claude process runs inside tmux, independent of your terminal
+3. Detach with `Ctrl-B d` — Claude keeps running in the background
+4. Reattach from any terminal with `muxc myproject`
+5. If the tmux session died but Claude Code saved the conversation, muxc resumes it with `claude --resume <sessionId>`
 
-muxc never writes files, sends signals, or modifies Claude Code's data. All side effects go through the `claude` CLI.
+**Session data** is read from Claude Code's native `~/.claude/` directory:
+- Session names from `custom-title` records in JSONL files
+- Session IDs from `~/.claude/sessions/{pid}.json`
+- Active status from tmux session state
+
+muxc never writes its own files. All side effects go through `tmux` and `claude` CLI.
 
 ### Environment variables
 
 | Variable | Description |
 |----------|-------------|
 | `MUXC_CLAUDE_BIN` | Path to the `claude` binary (default: auto-detected from `PATH`) |
+| `MUXC_TMUX_BIN` | Path to the `tmux` binary (default: auto-detected from `PATH`) |
 
 ## Shell completions
 

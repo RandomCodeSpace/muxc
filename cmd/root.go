@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -15,13 +16,14 @@ import (
 
 var (
 	claudeBin string
+	tmuxBin   string
 	version   string = "dev"
 )
 
 // reservedNames are subcommand names that cannot be used as session names.
 var reservedNames = map[string]bool{
 	"ls": true, "list": true, "l": true,
-	"info": true, "completion": true, "version": true,
+	"info": true, "kill": true, "completion": true, "version": true,
 	"help": true,
 }
 
@@ -29,7 +31,7 @@ func SetVersion(v string) { version = v }
 
 var rootCmd = &cobra.Command{
 	Use:               "muxc [<session>] [flags] [-- <claude-args>...]",
-	Short:             "muxc — Claude session viewer and launcher",
+	Short:             "muxc — Claude session manager with tmux",
 	SilenceUsage:      true,
 	SilenceErrors:     true,
 	Args:              cobra.ArbitraryArgs,
@@ -42,6 +44,10 @@ var rootCmd = &cobra.Command{
 		claudeBin, err = claude.GetClaudeBin()
 		if err != nil {
 			return err
+		}
+		tmuxBin, err = resolveBin("tmux", "MUXC_TMUX_BIN")
+		if err != nil {
+			return fmt.Errorf("tmux not found in PATH; install tmux to use muxc")
 		}
 		return nil
 	},
@@ -61,13 +67,21 @@ func init() {
 
 var flagCwd string
 
+// resolveBin returns a binary path from the given env var or PATH lookup.
+func resolveBin(name, envVar string) (string, error) {
+	if bin := os.Getenv(envVar); bin != "" {
+		return bin, nil
+	}
+	return exec.LookPath(name)
+}
+
 // sessionNameCompletion provides tab-completion for session names.
 func sessionNameCompletion(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	refs, _ := claude.ListSessionRefs(toComplete)
 	return refs, cobra.ShellCompDirectiveNoFileComp
 }
 
-// unifiedRun handles `muxc <name>` — resumes if session exists, creates if not.
+// unifiedRun handles `muxc <name>` — creates or attaches to a tmux session.
 func unifiedRun(cmd *cobra.Command, args []string) error {
 	if len(args) == 0 && cmd.ArgsLenAtDash() == -1 {
 		return lsRun(cmd, args)
@@ -96,22 +110,40 @@ func unifiedRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("%q is a reserved command name — choose a different session name", parsedName)
 	}
 
-	// Try to find existing session
+	tmuxName := session.TmuxSessionName(parsedName)
+
+	// Path 1: tmux session exists → attach
+	if session.TmuxHasSession(tmuxBin, tmuxName) {
+		ui.Launch("🔗 Attaching to session %q", parsedName)
+		return session.TmuxAttach(tmuxBin, tmuxName)
+	}
+
+	// Path 2: session data exists → resume in tmux
 	sess, nameMatchCount, err := claude.GetSessionByRef(name)
 	if err == nil {
 		if nameMatchCount > 1 {
 			ui.Info("📋 %d sessions named %q — using most recent. Run muxc ls to see all IDs, use muxc %s:<id> to select.",
 				nameMatchCount, sess.Name, sess.Name)
 		}
-		return attachFlow(sess, claudeArgs)
+		claudeCmd := []string{claudeBin, "--resume", sess.SessionID}
+		claudeCmd = append(claudeCmd, claudeArgs...)
+		cwd := sess.Cwd
+		if flagCwd != "" {
+			cwd = flagCwd
+		}
+		ui.Launch("🔗 Resuming session %q in tmux", parsedName)
+		if err := session.TmuxNewSession(tmuxBin, tmuxName, cwd, claudeCmd); err != nil {
+			return fmt.Errorf("creating tmux session: %w", err)
+		}
+		return session.TmuxAttach(tmuxBin, tmuxName)
 	}
 
-	// Name exists but ID prefix didn't match — don't offer to create
+	// Bad ID prefix — don't offer to create
 	if nameMatchCount > 0 {
 		return err
 	}
 
-	// Session doesn't exist — confirm creation
+	// Path 3: no session → create new
 	fmt.Printf("Session %q not found. Create it? [Y/n]: ", parsedName)
 	reader := bufio.NewReader(os.Stdin)
 	answer, _ := reader.ReadString('\n')
@@ -120,11 +152,6 @@ func unifiedRun(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	return createFlow(parsedName, claudeArgs)
-}
-
-// createFlow launches a new Claude session.
-func createFlow(name string, claudeArgs []string) error {
 	cwd := flagCwd
 	if cwd == "" {
 		var err error
@@ -134,42 +161,12 @@ func createFlow(name string, claudeArgs []string) error {
 		}
 	}
 
-	execArgs := []string{"--name", name}
-	execArgs = append(execArgs, claudeArgs...)
+	claudeCmd := []string{claudeBin, "--name", parsedName}
+	claudeCmd = append(claudeCmd, claudeArgs...)
 
-	ui.Launch("🚀 Creating session %q", name)
-	result := session.RunClaude(claudeBin, execArgs, cwd)
-
-	if result.SessionID == "" {
-		ui.Warn("⚠️  Could not capture Claude session ID — resume may not work for session %q", name)
+	ui.Launch("🚀 Creating session %q in tmux", parsedName)
+	if err := session.TmuxNewSession(tmuxBin, tmuxName, cwd, claudeCmd); err != nil {
+		return fmt.Errorf("creating tmux session: %w", err)
 	}
-
-	return result.Err
-}
-
-// attachFlow resumes an existing session via claude --resume.
-func attachFlow(sess *claude.Session, claudeArgs []string) error {
-	// If session is active, tell user and exit
-	if sess.Status == "active" && claude.CheckPID(sess.PID) {
-		return fmt.Errorf("session %q is already active (PID %d)", sess.Name, sess.PID)
-	}
-
-	if sess.SessionID == "" {
-		ui.Warn("⚠️  No session ID for %q — starting fresh in %s", sess.Name, ui.ShortenPath(sess.Cwd))
-		return createFlow(sess.Name, claudeArgs)
-	}
-
-	execArgs := []string{"--resume", sess.SessionID}
-	execArgs = append(execArgs, claudeArgs...)
-
-	ui.Launch("🔗 Resuming session %q", sess.Name)
-	result := session.RunClaudeResume(claudeBin, execArgs, sess.Cwd)
-
-	// If resume failed, fall back to fresh session
-	if result.ResumeFailure {
-		ui.Warn("⚠️  Could not resume session %q — starting fresh in %s", sess.Name, ui.ShortenPath(sess.Cwd))
-		return createFlow(sess.Name, claudeArgs)
-	}
-
-	return result.Err
+	return session.TmuxAttach(tmuxBin, tmuxName)
 }
