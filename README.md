@@ -1,51 +1,30 @@
 # muxc
 
-[![Release](https://img.shields.io/github/v/release/RandomCodeSpace/muxc?style=flat-square)](https://github.com/RandomCodeSpace/muxc/releases/latest)
-[![Go Report Card](https://goreportcard.com/badge/github.com/RandomCodeSpace/muxc?style=flat-square)](https://goreportcard.com/report/github.com/RandomCodeSpace/muxc)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/RandomCodeSpace/muxc?style=flat-square)](go.mod)
 
 **Claude Multiplexer — session viewer and launcher for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).**
 
-List, inspect, and resume your Claude Code sessions from any terminal. muxc reads directly from Claude Code's native data — no extra config, no extra storage.
+List, inspect, and resume your Claude Code sessions from any terminal. muxc reads directly from Claude Code's native data — no extra config, no extra storage. Single bash script, zero compilation.
 
 ## Why muxc?
 
-Claude Code stores your sessions but doesn't make them easy to manage across terminals. **muxc** fixes this:
-
-- **Zero storage** — reads session data directly from `~/.claude/`, never writes its own files
+- **Zero storage** — reads session data directly from `~/.claude/`, never writes its own state
 - **Named sessions** — create and resume sessions by name across terminals
-- **Session listing** — see all your Claude Code sessions at a glance with status and metadata
+- **Session listing** — see all your Claude Code sessions at a glance with status, IDs, and metadata
 - **Resume by name** — `muxc myproject` picks up where you left off
-- **Zero dependencies** — single static binary, no CGO, no runtime requirements
+- **Single file** — one bash script, no compilation, no runtime dependencies
+- **jq auto-install** — jq is bootstrapped automatically if not already present
 
 ## Install
-
-### Quick install (Linux / macOS)
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/RandomCodeSpace/muxc/main/install.sh | sh
 ```
 
-Or with `wget`:
+Or directly:
 
 ```sh
-wget -qO- https://raw.githubusercontent.com/RandomCodeSpace/muxc/main/install.sh | sh
-```
-
-### Go install
-
-```sh
-go install github.com/RandomCodeSpace/muxc@latest
-```
-
-### Download from releases
-
-Download the binary for your platform from the [releases page](https://github.com/RandomCodeSpace/muxc/releases/latest), then:
-
-```sh
-chmod +x muxc-*
-mv muxc-* ~/.local/bin/muxc
+curl -fsSL https://raw.githubusercontent.com/RandomCodeSpace/muxc/main/muxc | install -m 755 /dev/stdin ~/.local/bin/muxc
 ```
 
 ## Quick start
@@ -68,8 +47,8 @@ muxc myproject:8c14          # Resume a specific session by ID prefix
 | `muxc <name>:<id>` | Resume a specific session by name and ID prefix |
 | `muxc` | List sessions (same as `muxc ls`) |
 | `muxc ls` | List sessions with IDs (`-s active` or `-s detached` to filter) |
+| `muxc list` / `muxc l` | Aliases for `muxc ls` |
 | `muxc info <name>` | Show detailed session info |
-| `muxc completion bash\|zsh\|fish` | Generate shell completions |
 | `muxc version` | Print version |
 
 ### Flags
@@ -87,43 +66,23 @@ muxc myproject:8c14          # Resume a specific session by ID prefix
 
 ## How it works
 
-muxc is a **read-only** wrapper around Claude Code's native data:
+muxc is a **read-only** bash script that wraps Claude Code's native data:
 
 - **Session names** come from the `--name` flag, which Claude Code stores as a `custom-title` record in `~/.claude/projects/`
 - **Session IDs** are read from `~/.claude/sessions/{pid}.json` (written by Claude Code at startup)
-- **Active/detached status** is computed by checking if the session's PID is still alive in the process table
-- **Resume** uses `claude --resume <sessionId>` to reconnect to an existing conversation
+- **Active/detached status** is computed by checking if the session's PID is still alive
+- **Create** runs claude as a foreground subprocess (captures session ID for future resume)
+- **Resume** uses `exec claude --resume <sessionId>` for perfect TTY passthrough
 
-muxc never writes files, sends signals, or modifies Claude Code's data. All side effects go through the `claude` CLI.
+### Per-session args
+
+When you create a session with extra args (`muxc myproject -- --model opus`), those args are saved to `~/.config/muxc.conf` and automatically replayed on resume.
 
 ### Environment variables
 
 | Variable | Description |
 |----------|-------------|
 | `MUXC_CLAUDE_BIN` | Path to the `claude` binary (default: auto-detected from `PATH`) |
-
-## Shell completions
-
-```sh
-# bash
-muxc completion bash > /etc/bash_completion.d/muxc
-
-# zsh
-muxc completion zsh > "${fpath[1]}/_muxc"
-
-# fish
-muxc completion fish > ~/.config/fish/completions/muxc.fish
-```
-
-## Building from source
-
-```sh
-git clone https://github.com/RandomCodeSpace/muxc.git
-cd muxc
-make build       # → ./muxc
-make test        # run tests
-make install     # install to ~/.local/bin/muxc
-```
 
 ## License
 
