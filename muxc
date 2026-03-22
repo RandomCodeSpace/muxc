@@ -49,7 +49,14 @@ relative_time() {
 }
 
 # Shorten home prefix
-shorten_path() { echo "${1/#$HOME/~}"; }
+shorten_path() {
+    local p="$1"
+    if [[ "$p" == "$HOME"* ]]; then
+        echo "~${p#"$HOME"}"
+    else
+        echo "$p"
+    fi
+}
 
 # Decode project hash (best-effort)
 decode_project_hash() {
