@@ -55,8 +55,9 @@ muxc myproject               # Create a new session (or resume if it exists)
 # ... work with Claude, then press Ctrl-C or close the terminal ...
 muxc myproject               # Resume the same conversation
 muxc myproject -- --model opus  # Create with extra Claude flags
-muxc ls                      # List all sessions
+muxc ls                      # List all sessions (with session IDs)
 muxc info myproject          # Show session details
+muxc myproject:8c14          # Resume a specific session by ID prefix
 ```
 
 ## Commands
@@ -64,8 +65,9 @@ muxc info myproject          # Show session details
 | Command | Description |
 |---------|-------------|
 | `muxc <name> [-- <claude-args>]` | Resume session by name, or create if it doesn't exist |
+| `muxc <name>:<id>` | Resume a specific session by name and ID prefix |
 | `muxc` | List sessions (same as `muxc ls`) |
-| `muxc ls` | List sessions (`-s active` or `-s detached` to filter) |
+| `muxc ls` | List sessions with IDs (`-s active` or `-s detached` to filter) |
 | `muxc info <name>` | Show detailed session info |
 | `muxc completion bash\|zsh\|fish` | Generate shell completions |
 | `muxc version` | Print version |

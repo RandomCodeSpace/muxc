@@ -235,7 +235,29 @@ func TestListSessions(t *testing.T) {
 	}
 }
 
-func TestGetSession(t *testing.T) {
+func TestParseSessionRef(t *testing.T) {
+	tests := []struct {
+		input    string
+		name     string
+		idPrefix string
+	}{
+		{"myproject", "myproject", ""},
+		{"myproject:abc123", "myproject", "abc123"},
+		{"my:project:abc", "my:project", "abc"},
+		{":bad", ":bad", ""},
+		{"a:", "a", ""},
+		{"", "", ""},
+	}
+	for _, tt := range tests {
+		name, idPrefix := ParseSessionRef(tt.input)
+		if name != tt.name || idPrefix != tt.idPrefix {
+			t.Errorf("ParseSessionRef(%q) = (%q, %q), want (%q, %q)",
+				tt.input, name, idPrefix, tt.name, tt.idPrefix)
+		}
+	}
+}
+
+func TestGetSessionByRef(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
@@ -244,28 +266,73 @@ func TestGetSession(t *testing.T) {
 	os.MkdirAll(filepath.Join(claudeBase, "sessions"), 0755)
 	os.MkdirAll(projDir, 0755)
 
-	jsonl := `{"type":"custom-title","customTitle":"my-proj","sessionId":"uuid-abc"}` + "\n"
-	os.WriteFile(filepath.Join(projDir, "uuid-abc.jsonl"), []byte(jsonl), 0644)
+	// Two sessions with the same name
+	for _, s := range []struct{ id, title string }{
+		{"aaaa-1111-uuid", "dupe"},
+		{"bbbb-2222-uuid", "dupe"},
+	} {
+		jsonl := fmt.Sprintf(`{"type":"custom-title","customTitle":"%s","sessionId":"%s"}`+"\n", s.title, s.id)
+		os.WriteFile(filepath.Join(projDir, s.id+".jsonl"), []byte(jsonl), 0644)
+	}
+	// One unique session
+	jsonl := `{"type":"custom-title","customTitle":"unique","sessionId":"cccc-3333-uuid"}` + "\n"
+	os.WriteFile(filepath.Join(projDir, "cccc-3333-uuid.jsonl"), []byte(jsonl), 0644)
 
-	t.Run("found", func(t *testing.T) {
-		sess, err := GetSession("my-proj")
+	t.Run("name only returns most recent", func(t *testing.T) {
+		sess, count, err := GetSessionByRef("dupe")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if sess.Name != "my-proj" {
-			t.Errorf("expected %q, got %q", "my-proj", sess.Name)
+		if count != 2 {
+			t.Errorf("expected count=2, got %d", count)
+		}
+		if sess.Name != "dupe" {
+			t.Errorf("expected name 'dupe', got %q", sess.Name)
+		}
+	})
+
+	t.Run("name:idprefix selects specific", func(t *testing.T) {
+		sess, count, err := GetSessionByRef("dupe:bbbb")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if count != 2 {
+			t.Errorf("expected count=2, got %d", count)
+		}
+		if sess.SessionID != "bbbb-2222-uuid" {
+			t.Errorf("expected session bbbb-2222-uuid, got %s", sess.SessionID)
+		}
+	})
+
+	t.Run("bad prefix errors", func(t *testing.T) {
+		_, _, err := GetSessionByRef("dupe:zzzz")
+		if err == nil {
+			t.Fatal("expected error for bad prefix")
 		}
 	})
 
 	t.Run("not found", func(t *testing.T) {
-		_, err := GetSession("nonexistent")
+		_, _, err := GetSessionByRef("nonexistent")
 		if err == nil {
 			t.Fatal("expected error for nonexistent session")
 		}
 	})
+
+	t.Run("unique name works", func(t *testing.T) {
+		sess, count, err := GetSessionByRef("unique")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if count != 1 {
+			t.Errorf("expected count=1, got %d", count)
+		}
+		if sess.SessionID != "cccc-3333-uuid" {
+			t.Errorf("wrong session: %s", sess.SessionID)
+		}
+	})
 }
 
-func TestListSessionNames(t *testing.T) {
+func TestListSessionRefs(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
@@ -274,32 +341,34 @@ func TestListSessionNames(t *testing.T) {
 	os.MkdirAll(filepath.Join(claudeBase, "sessions"), 0755)
 	os.MkdirAll(projDir, 0755)
 
-	// Create two sessions with different names
-	for _, s := range []struct{ name, id string }{
-		{"alpha-session", "uuid-1"},
-		{"beta-session", "uuid-2"},
+	// Two sessions with the same name + one unique
+	for _, s := range []struct{ id, title string }{
+		{"aaaa-1111-uuid", "dupe"},
+		{"bbbb-2222-uuid", "dupe"},
+		{"cccc-3333-uuid", "unique"},
 	} {
-		jsonl := fmt.Sprintf(`{"type":"custom-title","customTitle":"%s","sessionId":"%s"}`+"\n", s.name, s.id)
+		jsonl := fmt.Sprintf(`{"type":"custom-title","customTitle":"%s","sessionId":"%s"}`+"\n", s.title, s.id)
 		os.WriteFile(filepath.Join(projDir, s.id+".jsonl"), []byte(jsonl), 0644)
 	}
 
-	t.Run("all names", func(t *testing.T) {
-		names, err := ListSessionNames("")
+	t.Run("duplicates get shortid", func(t *testing.T) {
+		refs, err := ListSessionRefs("")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(names) != 2 {
-			t.Fatalf("expected 2 names, got %d", len(names))
+		// Should have: dupe:aaaa-111, dupe:bbbb-222, unique
+		if len(refs) != 3 {
+			t.Fatalf("expected 3 refs, got %d: %v", len(refs), refs)
 		}
-	})
-
-	t.Run("prefix filter", func(t *testing.T) {
-		names, err := ListSessionNames("alpha")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+		// Unique names should not have :shortid
+		hasUnique := false
+		for _, r := range refs {
+			if r == "unique" {
+				hasUnique = true
+			}
 		}
-		if len(names) != 1 || names[0] != "alpha-session" {
-			t.Errorf("expected [alpha-session], got %v", names)
+		if !hasUnique {
+			t.Errorf("expected plain 'unique' ref, got %v", refs)
 		}
 	})
 }

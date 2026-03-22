@@ -194,36 +194,83 @@ func ListSessions() ([]Session, error) {
 	return sessions, nil
 }
 
-// GetSession finds the most recently modified session matching the given name.
-func GetSession(name string) (*Session, error) {
-	sessions, err := ListSessions()
-	if err != nil {
-		return nil, err
-	}
-	for i := range sessions {
-		if sessions[i].Name == name {
-			return &sessions[i], nil
+// ParseSessionRef splits "name:idprefix" into (name, idprefix).
+// If there's no colon or the colon is trailing, idprefix is empty
+// and the colon is stripped from the name.
+func ParseSessionRef(ref string) (name, idPrefix string) {
+	if idx := strings.LastIndex(ref, ":"); idx > 0 {
+		if idx < len(ref)-1 {
+			return ref[:idx], ref[idx+1:]
 		}
+		// Trailing colon — strip it, treat as name-only
+		return ref[:idx], ""
 	}
-	return nil, fmt.Errorf("session %q not found", name)
+	return ref, ""
 }
 
-// ListSessionNames returns unique session names matching the given prefix (for tab completion).
-func ListSessionNames(prefix string) ([]string, error) {
+// GetSessionByRef finds a session by name, optionally narrowed by session ID prefix.
+// Returns the session and the total count of sessions matching the name.
+func GetSessionByRef(ref string) (sess *Session, nameMatchCount int, err error) {
+	name, idPrefix := ParseSessionRef(ref)
+	sessions, err := ListSessions()
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var nameMatches []Session
+	for _, s := range sessions {
+		if s.Name == name {
+			nameMatches = append(nameMatches, s)
+		}
+	}
+
+	if len(nameMatches) == 0 {
+		return nil, 0, fmt.Errorf("session %q not found", name)
+	}
+
+	if idPrefix != "" {
+		for i := range nameMatches {
+			if strings.HasPrefix(nameMatches[i].SessionID, idPrefix) {
+				return &nameMatches[i], len(nameMatches), nil
+			}
+		}
+		return nil, len(nameMatches), fmt.Errorf("no session %q with ID prefix %q", name, idPrefix)
+	}
+
+	return &nameMatches[0], len(nameMatches), nil
+}
+
+// ListSessionRefs returns session refs for tab completion.
+// For duplicate names, includes "name:shortid" variants.
+func ListSessionRefs(prefix string) ([]string, error) {
 	sessions, err := ListSessions()
 	if err != nil {
 		return nil, err
 	}
-	seen := make(map[string]bool)
-	var names []string
+	nameCounts := make(map[string]int)
 	for _, s := range sessions {
-		if strings.HasPrefix(s.Name, prefix) && !seen[s.Name] {
+		nameCounts[s.Name]++
+	}
+	seen := make(map[string]bool)
+	var refs []string
+	for _, s := range sessions {
+		shortID := s.SessionID
+		if len(shortID) > 8 {
+			shortID = shortID[:8]
+		}
+		ref := s.Name + ":" + shortID
+		if !strings.HasPrefix(s.Name, prefix) && !strings.HasPrefix(ref, prefix) {
+			continue
+		}
+		if nameCounts[s.Name] > 1 {
+			refs = append(refs, ref)
+		} else if !seen[s.Name] {
 			seen[s.Name] = true
-			names = append(names, s.Name)
+			refs = append(refs, s.Name)
 		}
 	}
-	sort.Strings(names)
-	return names, nil
+	sort.Strings(refs)
+	return refs, nil
 }
 
 // GetClaudeBin returns the claude binary from MUXC_CLAUDE_BIN env or PATH.

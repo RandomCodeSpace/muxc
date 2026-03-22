@@ -17,7 +17,7 @@ var infoCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
-		sess, err := claude.GetSession(name)
+		sess, _, err := claude.GetSessionByRef(name)
 		if err != nil {
 			return err
 		}

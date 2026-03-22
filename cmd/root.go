@@ -63,8 +63,8 @@ var flagCwd string
 
 // sessionNameCompletion provides tab-completion for session names.
 func sessionNameCompletion(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	names, _ := claude.ListSessionNames(toComplete)
-	return names, cobra.ShellCompDirectiveNoFileComp
+	refs, _ := claude.ListSessionRefs(toComplete)
+	return refs, cobra.ShellCompDirectiveNoFileComp
 }
 
 // unifiedRun handles `muxc <name>` — resumes if session exists, creates if not.
@@ -91,18 +91,28 @@ func unifiedRun(cmd *cobra.Command, args []string) error {
 		name = positional[0]
 	}
 
-	if reservedNames[name] {
-		return fmt.Errorf("%q is a reserved command name — choose a different session name", name)
+	parsedName, _ := claude.ParseSessionRef(name)
+	if reservedNames[parsedName] {
+		return fmt.Errorf("%q is a reserved command name — choose a different session name", parsedName)
 	}
 
 	// Try to find existing session
-	sess, err := claude.GetSession(name)
+	sess, nameMatchCount, err := claude.GetSessionByRef(name)
 	if err == nil {
+		if nameMatchCount > 1 {
+			ui.Info("📋 %d sessions named %q — using most recent. Run muxc ls to see all IDs, use muxc %s:<id> to select.",
+				nameMatchCount, sess.Name, sess.Name)
+		}
 		return attachFlow(sess, claudeArgs)
 	}
 
+	// Name exists but ID prefix didn't match — don't offer to create
+	if nameMatchCount > 0 {
+		return err
+	}
+
 	// Session doesn't exist — confirm creation
-	fmt.Printf("Session %q not found. Create it? [Y/n]: ", name)
+	fmt.Printf("Session %q not found. Create it? [Y/n]: ", parsedName)
 	reader := bufio.NewReader(os.Stdin)
 	answer, _ := reader.ReadString('\n')
 	answer = strings.TrimSpace(strings.ToLower(answer))
@@ -110,7 +120,7 @@ func unifiedRun(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	return createFlow(name, claudeArgs)
+	return createFlow(parsedName, claudeArgs)
 }
 
 // createFlow launches a new Claude session.

@@ -10,6 +10,7 @@ import (
 type SessionRow struct {
 	Status   string // "active" or "detached"
 	Name     string
+	ShortID  string // first 8 chars of session ID
 	Cwd      string
 	Accessed string // relative time string like "2m ago"
 }
@@ -23,13 +24,15 @@ func RenderSessionTable(sessions []SessionRow) {
 	const (
 		colStatus   = 4
 		colName     = 24
-		colCwd      = 36
+		colID       = 10
+		colCwd      = 32
 		colAccessed = 12
 	)
 
-	fmt.Printf("  %s  %s  %s  %s\n",
+	fmt.Printf("  %s  %s  %s  %s  %s\n",
 		headerStyle.Render(fmt.Sprintf("%-*s", colStatus, "")),
 		headerStyle.Render(fmt.Sprintf("%-*s", colName, "NAME")),
+		headerStyle.Render(fmt.Sprintf("%-*s", colID, "ID")),
 		headerStyle.Render(fmt.Sprintf("%-*s", colCwd, "DIRECTORY")),
 		headerStyle.Render(fmt.Sprintf("%-*s", colAccessed, "MODIFIED")),
 	)
@@ -37,10 +40,11 @@ func RenderSessionTable(sessions []SessionRow) {
 	for _, s := range sessions {
 		icon := StatusIcon(s.Status)
 		name := nameStyle.Render(fmt.Sprintf("%-*s", colName, s.Name))
+		id := dimStyle.Render(fmt.Sprintf("%-*s", colID, s.ShortID))
 		cwd := dimStyle.Render(fmt.Sprintf("%-*s", colCwd, s.Cwd))
 		accessed := dimStyle.Render(fmt.Sprintf("%-*s", colAccessed, s.Accessed))
 
-		fmt.Printf("  %-*s  %s  %s  %s\n", colStatus, icon, name, cwd, accessed)
+		fmt.Printf("  %-*s  %s  %s  %s  %s\n", colStatus, icon, name, id, cwd, accessed)
 	}
 
 	fmt.Println()

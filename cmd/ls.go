@@ -47,9 +47,14 @@ func lsRun(cmd *cobra.Command, args []string) error {
 
 	rows := make([]ui.SessionRow, len(sessions))
 	for i, s := range sessions {
+		shortID := s.SessionID
+		if len(shortID) > 8 {
+			shortID = shortID[:8]
+		}
 		rows[i] = ui.SessionRow{
 			Status:   s.Status,
 			Name:     s.Name,
+			ShortID:  shortID,
 			Cwd:      ui.ShortenPath(s.Cwd),
 			Accessed: ui.RelativeTime(s.ModTime),
 		}
