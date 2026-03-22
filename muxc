@@ -129,3 +129,156 @@ config_set_args() {
     fi
     echo "${sid}=${args}" >> "$CONFIG_FILE"
 }
+
+###############################################################################
+# Session scanning
+###############################################################################
+
+# Global session data (parallel arrays, populated by scan_sessions)
+S_NAMES=()    # customTitle
+S_IDS=()      # sessionId
+S_PROJS=()    # project hash
+S_CWDS=()     # working directory
+S_PIDS=()     # live PID or 0
+S_STATUSES=() # "active" or "detached"
+S_MTIMES=()   # mtime epoch
+
+scan_sessions() {
+    S_NAMES=(); S_IDS=(); S_PROJS=(); S_CWDS=(); S_PIDS=(); S_STATUSES=(); S_MTIMES=()
+
+    local projects_dir="$CLAUDE_DIR/projects"
+    local sessions_dir="$CLAUDE_DIR/sessions"
+    [[ -d "$projects_dir" ]] || return 0
+
+    # Build PID map as temp file: "sessionId\tpid\tcwd" per line
+    # (bash 3.2 compatible — no associative arrays)
+    local pid_map_file
+    pid_map_file=$(mktemp)
+    # Clean up temp file when function returns
+    # shellcheck disable=SC2064
+    trap "rm -f '$pid_map_file'" RETURN
+    if [[ -d "$sessions_dir" ]]; then
+        for pf in "$sessions_dir"/*.json; do
+            [[ -f "$pf" ]] || continue
+            local pdata
+            pdata=$(jq -r '[.pid // 0, .sessionId // "", .cwd // ""] | @tsv' "$pf" 2>/dev/null) || continue
+            local ppid psid pcwd
+            IFS=$'\t' read -r ppid psid pcwd <<< "$pdata"
+            [[ -n "$psid" ]] || continue
+            if check_pid "$ppid"; then
+                # Live PID — overwrite any existing entry
+                sed -i "/^${psid}	/d" "$pid_map_file" 2>/dev/null || true
+                printf '%s\t%s\t%s\n' "$psid" "$ppid" "$pcwd" >> "$pid_map_file"
+            elif ! grep -q "^${psid}	" "$pid_map_file" 2>/dev/null; then
+                printf '%s\t%s\t%s\n' "$psid" "0" "$pcwd" >> "$pid_map_file"
+            fi
+        done
+    fi
+
+    # Scan JSONL files for titled sessions
+    local entries=()
+    for projdir in "$projects_dir"/*/; do
+        [[ -d "$projdir" ]] || continue
+        local proj_hash
+        proj_hash=$(basename "$projdir")
+        for jf in "$projdir"*.jsonl; do
+            [[ -f "$jf" ]] || continue
+            local title sid
+            local firstline
+            firstline=$(head -1 "$jf" 2>/dev/null) || continue
+            title=$(echo "$firstline" | jq -r 'select(.type=="custom-title") | .customTitle // ""' 2>/dev/null)
+            [[ -n "$title" ]] || continue
+            sid=$(echo "$firstline" | jq -r '.sessionId // ""' 2>/dev/null)
+            [[ -n "$sid" ]] || continue
+
+            local mtime
+            mtime=$(file_mtime "$jf")
+            local pid=0 cwd="" status="detached"
+            local pid_entry
+            pid_entry=$(grep "^${sid}	" "$pid_map_file" 2>/dev/null) || true
+            if [[ -n "$pid_entry" ]]; then
+                IFS=$'\t' read -r _ pid cwd <<< "$pid_entry"
+                (( pid > 0 )) && status="active"
+            fi
+            [[ -z "$cwd" ]] && cwd=$(decode_project_hash "$proj_hash")
+
+            entries+=("${mtime}|${#S_NAMES[@]}")
+            S_NAMES+=("$title")
+            S_IDS+=("$sid")
+            S_PROJS+=("$proj_hash")
+            S_CWDS+=("$cwd")
+            S_PIDS+=("$pid")
+            S_STATUSES+=("$status")
+            S_MTIMES+=("$mtime")
+        done
+    done
+
+    # Sort by mtime descending — rebuild arrays in sorted order
+    if (( ${#entries[@]} > 0 )); then
+        local sorted
+        sorted=$(printf '%s\n' "${entries[@]}" | sort -t'|' -k1,1rn)
+        local new_names=() new_ids=() new_projs=() new_cwds=() new_pids=() new_statuses=() new_mtimes=()
+        while IFS='|' read -r _ idx; do
+            new_names+=("${S_NAMES[$idx]}")
+            new_ids+=("${S_IDS[$idx]}")
+            new_projs+=("${S_PROJS[$idx]}")
+            new_cwds+=("${S_CWDS[$idx]}")
+            new_pids+=("${S_PIDS[$idx]}")
+            new_statuses+=("${S_STATUSES[$idx]}")
+            new_mtimes+=("${S_MTIMES[$idx]}")
+        done <<< "$sorted"
+        S_NAMES=("${new_names[@]}"); S_IDS=("${new_ids[@]}"); S_PROJS=("${new_projs[@]}")
+        S_CWDS=("${new_cwds[@]}"); S_PIDS=("${new_pids[@]}"); S_STATUSES=("${new_statuses[@]}")
+        S_MTIMES=("${new_mtimes[@]}")
+    fi
+}
+
+###############################################################################
+# Session lookup
+###############################################################################
+
+# Parse "name:idprefix" → sets REF_NAME and REF_PREFIX
+parse_ref() {
+    local ref="$1"
+    # Strip trailing colon
+    [[ "$ref" == *: ]] && ref="${ref%:}"
+    if [[ "$ref" == *:* ]]; then
+        REF_NAME="${ref%:*}"
+        REF_PREFIX="${ref##*:}"
+    else
+        REF_NAME="$ref"
+        REF_PREFIX=""
+    fi
+}
+
+# Find session by ref. Sets FOUND_IDX and FOUND_COUNT.
+find_session() {
+    local ref="$1"
+    parse_ref "$ref"
+    FOUND_IDX=-1
+    FOUND_COUNT=0
+
+    local first_match=-1
+    for i in "${!S_NAMES[@]}"; do
+        if [[ "${S_NAMES[$i]}" == "$REF_NAME" ]]; then
+            (( FOUND_COUNT++ )) || true
+            if [[ -n "$REF_PREFIX" ]]; then
+                if [[ "${S_IDS[$i]}" == "$REF_PREFIX"* ]]; then
+                    FOUND_IDX=$i
+                    return 0
+                fi
+            elif (( first_match < 0 )); then
+                first_match=$i
+            fi
+        fi
+    done
+
+    if [[ -n "$REF_PREFIX" ]]; then
+        return 1  # prefix didn't match
+    fi
+    if (( first_match >= 0 )); then
+        FOUND_IDX=$first_match
+        return 0
+    fi
+    return 1  # not found
+}
